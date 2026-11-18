@@ -47,7 +47,7 @@
 | 文件 | 用途 |
 |---|---|
 | `DouZaiMa-v1.0.apk` | 安卓手机端，装到那台「盯梢」的手机上 |
-| `DouZaiNe.exe` / `斗在呢.exe` | 电脑端控制台，双击即用（二者是同一个程序的不同文件名） |
+| `DouZaiNe.exe`、`DouZaiNe-zh.exe`、`DouZaiNe-cn.exe` | 电脑端控制台，任选一个双击即用（三者是同一个程序，只有文件名不同） |
 
 电脑端是 C# WinForms 写的单文件程序，基于 .NET Framework 4.8（Windows 自带），**目标机器不需要安装任何东西**。
 
