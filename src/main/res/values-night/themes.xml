@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 深色模式主题覆盖：状态栏图标改为浅色 -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.DouZaiMa" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+
+        <item name="colorSecondary">@color/on_surface_variant</item>
+        <item name="colorOnSecondary">@color/surface</item>
+        <item name="colorSecondaryContainer">@color/surface_variant</item>
+        <item name="colorOnSecondaryContainer">@color/on_surface</item>
+
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorOnBackground">@color/on_surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline</item>
+
+        <item name="colorError">@color/state_absent</item>
+        <item name="colorOnError">#FFFFFF</item>
+        <item name="colorErrorContainer">@color/state_absent_container</item>
+        <item name="colorOnErrorContainer">@color/state_absent</item>
+
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+</resources>

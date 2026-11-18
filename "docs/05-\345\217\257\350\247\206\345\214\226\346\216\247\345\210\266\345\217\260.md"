@@ -1,0 +1,198 @@
+# 05 · 可视化控制台 + 手机端配置
+
+> 覆盖三个问题：① App 是否必须前台 ② 端到端通知与可视化 ③ 手机端 UI 与配置
+
+---
+
+## 一、问题①：App 必须一直在前台吗？—— **不需要**
+
+### 实测结论
+
+| 场景 | 相机 | 检测 | 说明 |
+|---|---|---|---|
+| App 在前台 | ✅ | ✅ 正常 | — |
+| **切到桌面（App 进后台）** | ✅ | ✅ **继续输出日志** | 前台服务顶住了 |
+| **锁屏** | ✅ | ✅ **继续输出日志** | 同上 |
+
+实测日志（切到桌面后仍在跑）：
+```
+11:51:37  检测: 框=1 最高分=0.73 类别=person 有人=true 状态=PRESENT 推理=320ms
+11:51:40  检测: 框=2 最高分=0.80 类别=person 有人=true 状态=PRESENT 推理=201ms
+11:51:49  检测: 框=1 最高分=0.68 类别=person 有人=true 状态=PRESENT 推理=303ms
+11:51:55  检测: 框=1 最高分=0.62 类别=person 有人=true 状态=PRESENT 推理=366ms
+```
+
+### 关键概念：前台服务 ≠ 界面在前台
+
+Android 10+ 禁止**后台 App 开相机**：
+```
+Caller "com.yq.sentinel" cannot open camera "1" from background (proc state 21)
+```
+
+解法是 `SentinelService`（前台服务，`foregroundServiceType="camera"`），
+它让进程保持「前台优先级」，**但不需要界面可见**。
+你会看到一条常驻通知（下拉栏里），这是 Android 的强制要求。
+
+所以：**Moonlight 串流时，Sentinel 自然就在后台，两者完全独立。**
+Sentinel 只有一个常驻通知 + 一个 TCP 监听，不会抢 Moonlight 的解码资源
+（实测大核占用：绑核后仅 0.7%）。
+
+### ⚠️ 但有个真实的坑：锁屏会断 USB
+
+实测：锁屏后 `adb devices` 显示 **no devices**（USB 调试连接断开），
+解锁后自动恢复。
+
+因为 Moonlight 串流走的也是 USB（`rndis0`），所以：
+> **你的实际使用方式必须是「不锁屏 + 屏幕常亮」，或者改用 WiFi 串流。**
+
+如果要在开发者选项里找开关，是「USB 调试（安全设置）」或「锁屏时保持 USB 调试」。
+
+---
+
+## 二、问题②：可视化配置 —— 已做成 exe
+
+### 是什么
+
+`pc/dist/SentinelConsole/SentinelConsole.exe`（**1.9 MB**）
+
+- **双击即用**，浏览器自动打开 `http://127.0.0.1:8766`
+- **目标机器不需要装 Python**（PyInstaller 打包）
+- 界面是深色仪表盘：实时状态卡片 + 动作配置 + 触发配置 + 日志
+
+![控制台界面](img/console.png)
+
+### 界面能做什么
+
+| 区域 | 内容 |
+|---|---|
+| 实时状态 | 有人/无人（大字+颜色）、FPS、推理耗时、后端、机型、pid |
+| 手机端配置 | 显示手机上现在配的离开时长/阈值/绑核/帧率（实时同步） |
+| 动作 | ☐ 通知 ☐ 锁屏 ☐ 暂停播放 + exec 命令输入框 |
+| 触发 | 触发条件（离开/回来/两者）、额外缓冲秒数、冷却秒数、演练模式 |
+| 日志 | 实时滚动，只在状态变化时记（不刷屏） |
+| 测试按钮 | 「测试触发一次『人离开』」——不用真的走开就能验证动作链路 |
+
+### 为什么是 Web 界面而不是 tkinter
+
+一开始想用 tkinter，但本机 Python **没编译 tkinter**（`ModuleNotFoundError`），
+而 tkinter 是 C 扩展不能用 pip 装。
+
+改用 Web 反而更好：只用标准库 `http.server`，零依赖、打包更小，
+而且 HTML/CSS 能做得比 tkinter 好看得多。
+
+### 重新打包
+
+```bash
+python -m pip install pyinstaller     # 只需一次
+python pc/build_exe.py --clean         # 输出到 pc/dist/
+python pc/build_exe.py --onefile       # 单文件版
+```
+
+### 用源码跑（开发时更方便）
+
+```bash
+python pc/sentinel_web.py             # 会自动开浏览器
+python pc/sentinel_web.py --dry-run   # 演练模式
+```
+
+---
+
+## 三、问题③：手机端 UI 与配置 —— 已加
+
+### 界面
+
+状态卡片（有人/无人大字 + 颜色）→ 性能行 → 开始/停止 → 四个配置项。
+
+### 四个配置项（全部持久化到 SharedPreferences）
+
+| 配置 | 范围 | 默认 | 作用 |
+|---|---|---|---|
+| **离开确认时长** | 0–60 秒 | 8 秒 | 连续检测不到人这么久才判定离开 |
+| **置信度阈值** | 0.10–0.90 | 0.40 | 低于此分数不算有人 |
+| **目标检测帧率** | 5/10/15/20 | 15 | 取帧上限 |
+| **绑定小核** | 开/关 | 开 | 是否固定在 cpu0-3 |
+
+配置改动会**自动重启检测**（状态机的去抖参数变了必须重建；
+绑核和帧率是线程级属性，也必须重建线程）。
+
+### 命令行也能配（脚本化用）
+
+```bash
+adb shell am start -n com.yq.sentinel/.MainActivity \
+  --ez autostart true --es threshold 0.35 --ei absent_seconds 12 --ez pin false
+```
+
+### 两边的配置是【叠加】的
+
+```
+实际触发延迟 ≈ 手机端「离开确认时长」（8s） + PC 端「额外缓冲」（默认 0）
+```
+
+手机端那 8 秒是**必需的**——防「低头/侧身被误判成离开」。
+所以 PC 端的额外缓冲默认 0。
+
+Web 控制台会**实时显示手机端的配置**，让你算得清实际延迟。
+
+---
+
+## 四、为此修的四个 bug
+
+| # | Bug | 现象 | 解 |
+|---|---|---|---|
+| 1 | **改写 MainActivity 时漏掉 `eventServer.start()`** | 事件服务没启动，PC 连不上；且 `sendConfig` 在没连接时静默失败，把问题掩盖了 | 加回启动 + EventServer.start() 改幂等 + 失败打日志 |
+| 2 | **config 事件只发一次** | PC 在 App 启动之后连上，就永远拿不到配置 | EventServer 记住最后一份 config，客户端连上时自动补发 |
+| 3 | **EventHandler 的日志只 print 到 stdout** | Web 界面上看不到「动作执行成功/失败」 | 日志出口改成可注入 `logger` |
+| 4 | **日志被 presence 刷屏** | 每秒一条「检测到人离开」，有用信息全被淹没 | 只在状态**变化**时记日志 |
+
+另外两个「测试触发」不工作的原因：
+
+| 现象 | 原因 | 解 |
+|---|---|---|
+| 点了没反应 | `_fired_absent` 是防重复触发的全局标志，之前触发过就拦下了 | `EventHandler.reset()` 重新武装 |
+| 显示「节流跳过」 | cooldown 拦的。**不能靠临时改 cooldown**——手机端每秒的 presence 事件会调 `sync_handler` 把它重置回配置值 | 加 `Actions.bypass_cooldown` 开关 |
+
+### 打包踩的坑
+
+```bash
+--exclude-module email --exclude-module http.client   # ← 我加的优化
+```
+结果打包能过，运行时直接崩：
+```
+ModuleNotFoundError: No module named 'email'
+  ← http/server.py 第 92 行 import email
+```
+**别排除 `http.server` 的依赖**。已从排除列表移除。
+
+---
+
+## 五、端到端验证记录
+
+### Web 控制台（真机）
+
+```
+[12:13:03] 手动触发一次「人离开」测试事件
+[12:13:03] 检测到人离开，开始计时…
+[12:13:03] 人已离开 0.5s（超过阈值 0.0s），触发动作
+[12:13:03]   notify: OK dry-run: 未真正弹出通知
+[12:13:03]   lock: OK dry-run: 未真正锁屏
+```
+
+### exe 版（真机）
+
+```
+连接: True | 有人: False
+手机: 安卓真机 | pid 14476 | 模型 ssd_mobilenet_v2
+性能: 2.93 fps | 310 ms | cpu(MediaPipe)
+手机端配置: {'absent_seconds': 8, 'missing_frames': 3,
+              'threshold': 0.4, 'pin_cpu': True, 'fps': 15}
+```
+
+---
+
+## 六、还没做的
+
+| 事项 | 说明 |
+|---|---|
+| 真实执行 `notify` / `lock` | 目前只跑过 `--dry-run`。逻辑链路已验证，但真弹窗/真锁屏需要你在场确认（会锁屏，要密码解锁） |
+| 长时间稳定性 | 建议跑一整夜看有没有内存泄漏或线程堆积 |
+| 开机自启 | 手机重启后 App 不会自动跑，需要手动启动或加开机广播 |

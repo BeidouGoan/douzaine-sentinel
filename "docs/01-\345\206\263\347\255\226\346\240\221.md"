@@ -1,0 +1,228 @@
+# 01 · 决策树：实测后的版本
+
+> **Gate 0 已经跑完，结论是「串流不抢 CPU」。**
+> 这改变了整棵树的形状：NPU 从必需品降级为可选项。
+> 下面标 ✅ 的门是已实测通过的，标 ⬜ 的还需要你动手。
+
+---
+
+## ✅ Gate 0 · 串流到底占了多少 CPU？—— 已完成
+
+### 实测结论
+
+| 阶段 | 整机 CPU | 结论 |
+|---|---|---|
+| 串流中 | **6.5% ~ 8.7%** | 8 核里只用了不到 9% |
+| 串流净增（vs 空载） | **+0.4%** | 串流几乎不占 CPU |
+| 注入 +35% CPU 负载后 | RTT 抖动 **0.0ms → 0.4ms** | 瓶颈不在 CPU |
+
+**为什么**：Moonlight 的视频解码在 **DV 硬件解码器**上，CPU 只干网络收包和音频。
+
+### 由此得出的结论
+
+**「串流抢 CPU，检测必须上 NPU」这个前提，在你的实际配置下不成立。**
+
+→ **CPU 版检测完全可行，NPU 不是必需品。**
+
+### 为什么还要往下走
+
+不是因为延迟，而是因为**技术史复现**这个理由：
+
+> 你在亲手走 2019 年端侧 AI 的完整工具链：
+> DDK 离线转换 → int8 量化校准 → 算子兼容性报告 → NPU/CPU 子图拆分 → 混合调度。
+> **这才是今天所有手机 AI 的底层逻辑**（只是后来被 NNAPI 统一了）。
+
+这条路的价值不取决于它是否比 CPU 快，取决于你是否要走一遍。
+
+---
+
+## ✅ Gate 1 · int8 上 NPU 在本机怎么实现？—— 已用华为自家插件证实
+
+**答案：走 HiAI DDK 离线模型（`.cambricon` / MEF 格式），不走 NNAPI。**
+
+### 证据链
+
+本机华为 HiAI 视觉插件的**文件名后缀直接标明了调度策略**：
+
+| 后缀 | 含义 | 数量 |
+|---|---|---|
+| `-kirin980` | 走 **NPU** | 6 个（facelandmark / carddetect / headpose / portraitseg / sisr / txtimagesr） |
+| `-cpu` | 走 **CPU** | 1 个（facerating） |
+| `-common` | 通用 | 其余 |
+
+拉下 NPU 版插件看内容：
+
+```
+   5392664  assets/HwFaceLandmark_980.cambricon   ← 寒武纪离线模型（MEF 格式）
+   1239576  assets/get_box_980.cambricon
+```
+
+CPU 版插件：
+
+```
+   1160640  assets/headpose.ms    ← MNN 模型
+      7643  assets/headpose.bin
+```
+
+`.cambricon` 文件头 `7f 4d 45 46` = **MEF（Cambricon Model Exchange Format）**，
+由 DDK 的 `omg` 生成；内含 `subnet0`、`saveModelToFile`（omg 导出函数）、
+`shortcut_bn_scal`（**量化 scale**）→ 确认是 int8 量化离线模型。
+
+### 结论
+
+| 问题 | 答案 |
+|---|---|
+| Kirin 980 能跑 int8 NPU 吗？ | ✅ 能，华为自家量产插件就是 |
+| 走哪条路？ | **DDK 离线模型**（`.cambricon`） |
+| NNAPI 捷径可行吗？ | ❌ **华为官方自己都不用**——这是最有力的旁证 |
+| CPU 方案用什么？ | **MNN**（`.ms`+`.bin`），不是 ncnn |
+
+### 意外收获：MNN 在本机有官方实践
+
+华为的 CPU 插件用 **MNN** 格式模型。所以 `MNN` + `ncnn` 两条 CPU 路线，
+MNN 反而更"贴本机生态"。而 MNN 同时支持 CPU(int8/fp16) 和 NNAPI 后端，
+**一套框架可以同时跑 CPU 和 NPU**，工程上更省事。
+
+→ **模型框架建议改用 MNN，而不是 ncnn。**
+
+---
+
+## ⬜ Gate 2 · CPU 版跑通（无论上面结论如何，这一步都要做）
+
+### 实施
+
+```bash
+# 1) 准备模型（PC 上）
+onnx2ncnn ssd_mobilenetv2.onnx ssd_mobilenetv2.param ssd_mobilenetv2.bin
+./ncnn-quantize ssd_mobilenetv2.param ssd_mobilenetv2.bin calib.txt \
+      ssd_mobilenetv2_int8.param ssd_mobilenetv2_int8.bin
+
+# 2) 放进 app/src/main/assets/model/
+# 3) 编译安装
+cd app && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### ★ 绑核：用实测的核编号，别用猜的
+
+**本机实测：`cpu0-3` = A55 小核，`cpu4-7` = A76 大核。**
+
+```bash
+# toybox 版 taskset 用十六进制掩码（不是 GNU 的 -c 列表）
+# cpu0-3 = 0x0f   cpu4-7 = 0xf0   全部 = 0xff
+adb shell "taskset 0x0f <pid>"
+```
+
+或在 native 层用 `sched_setaffinity` 固定（`app/src/main/cpp/ncnn_detector.cpp`）。
+
+### ★ 为什么绑核仍然值得做（即使 CPU 不抢资源）
+
+不是为了延迟（Gate 0 已证明延迟不受影响），而是为了：
+
+1. **不跟串流的协议栈抢小核** —— 给别的进程留余量
+2. **功耗可控** —— 小核跑检测的能耗远低于大核
+3. **实验可控** —— 绑核后 CPU 占用曲线干净，A/B 对比才有意义
+
+### 三组对照
+
+| # | 手机端 | 记录 |
+|---|---|---|
+| 5.1 | 不启动检测 | 基线 |
+| 5.2 | 启动检测（不绑核） | 占用曲线 |
+| 5.3 | 启动检测 + `taskset 0x0f` | 占用曲线 |
+
+按 Gate 0 的结果，**三组的串流延迟应该几乎一样**——这本身就是结论：
+「检测不干扰串流，NPU 不是必需品」。
+
+---
+
+## ⬜ Gate 3 · DDK（只在你决定做技术史复现时才走）
+
+```bash
+# 1) 装 DDK（对应 Kirin 980 = V200；但本机有 hiaiserver_v2，
+#    建议同时试 V200 与更新的版本，看哪个能加载）
+# 2) 转换模型为离线 .nb，用 DDK 自带 omg
+# 3) ★ 一定要读 eval_report.json —— 它逐个算子告诉你哪些不支持
+# 4) 参考实现
+git clone https://github.com/AIIABenchmark/AIIA-DNN-benchmark
+#    它的 hiai 后端是完整的 DDK 集成示例（含 JNI 层）
+```
+
+### 算子不支持怎么办
+
+| 做法 | 代价 | 效果 |
+|---|---|---|
+| 换等价算子（DetectionOutput → SSDDetectionOutput） | 改结构、重训 | 性能最好 |
+| 模型分段，让它回落 CPU | 几乎零改动 | 该段跑 CPU，混合调度 |
+
+---
+
+## 决策树（实测后）
+
+```
+        ┌──────────────────────────────────────┐
+        │  ✅ Gate 0：串流占多少 CPU？           │
+        │  实测 8.7%，净增 +0.5%                │
+        │  → 串流不抢 CPU（解码在 DV 硬件解码器）│
+        └──────────────────┬───────────────────┘
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+              ▼                         ▼
+    ┌──────────────────┐      ┌────────────────────┐
+    │ 【务实路线】      │      │ 【技术史路线】      │
+    │ MNN int8 + 绑小核 │      │ 走完整 DDK 链路     │
+    │ 立刻能用          │      │ DDK → int8 校准 →   │
+    │ NPU 不是必需品    │      │ 算子报告 → 混合调度 │
+    └────────┬─────────┘      └─────────┬──────────┘
+             │                          │
+             │                ┌─────────▼──────────┐
+             │                │ ✅ Gate 1：已证实   │
+             │                │ int8 上 NPU 必须走 │
+             │                │ DDK 离线模型       │
+             │                │ (.cambricon/MEF)   │
+             │                │ NNAPI 捷径不通     │
+             │                │ CPU 方案用 MNN     │
+             │                └─────────┬──────────┘
+             │                          │
+             │                          ▼
+             │                ┌────────────────────┐
+             │                │ ⬜ Gate 3           │
+             │                │ DDK V200 + .nb     │
+             │                │ 官方 52.39 FPS     │
+             │                └─────────┬──────────┘
+             │                          │
+             ▼                          ▼
+    ┌────────────────────────┐            ┌──────────────────┐
+    │ ⬜ Gate 2：CPU 版跑通   │            │ INT8 真·NPU      │
+    │ + taskset 0x0f 绑小核  │            │ SSD-MobileNetV2  │
+    │ 拿 A/B 对照数据         │            │（技术史闭环）    │
+    └────────────────────────┘            └──────────────────┘
+```
+
+---
+
+## 一句话回答「这项目还值得做吗」
+
+**值得，但理由变了。**
+
+- ❌ 不是为了「NPU 更快」——Gate 0 证明了 CPU 够用
+- ❌ 不是为了「检测才能跑」——CPU 跑得动
+- ✅ 是为了**亲手走一遍 2019 年端侧 AI 的完整工具链**，理解
+  「为什么今天的 NPU 都被 NNAPI 统一了」
+- ✅ 以及**一个真实可用的小工具**：手机插着 USB 当副屏时，
+  摄像头检测人是否离开，自动锁屏/通知 PC
+
+两条路都成立。区别只在于你要不要那个 `.cambricon` 和那份 eval_report.json。
+
+---
+
+## 剩下的环境障碍
+
+| 障碍 | 影响 | 解决 |
+|---|---|---|
+| 无 Android SDK / Java / Gradle | App 无法编译 | 装 Android Studio + SDK + NDK |
+| 无 ncnn/MNN 预编译包 | native 层编不了 | 从 ncnn/MNN 官方 release 下 arm64-v8a 包 |
+| 无 DDK V200 | int8 NPU 跑不了 | 华为 HiAI 开发者页面下载 |
+| 外网下载 APK 受限 | 装不了 AI Benchmark 类的现成工具 | 已用华为自家插件绕过（见 Gate 1） |
+| 手机端无 nc / python / termux | 无法在设备上起测试监听器 | 需 App 起来后才能端到端验证事件通道 |

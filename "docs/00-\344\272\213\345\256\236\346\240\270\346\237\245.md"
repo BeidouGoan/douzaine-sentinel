@@ -1,0 +1,365 @@
+# 00 · 事实核查 + 实测结论
+
+> **本文分两部分：**
+> A. 对原始分析的核查 —— 找出必须推翻的错误
+> B. 在真机（一台安卓真机）上的实测结论 —— Gate 0 已经跑完
+>
+> B 部分的数据是本机实测，优先于任何二手资料。
+
+---
+
+# A · 原始分析的两处致命错误
+
+## 错误 1 · 那组 FPS 数字根本不是麒麟 980 的
+
+原分析给出的这张表，标注为 "DUT1 = Kirin 980（Mate 20 系列），框架 HiAI/AndroidNN"：
+
+| 模型（int8） | 原分析声称 | AIIA 官方表实际值 |
+|---|---|---|
+| SSD_MobileNet_v2 | 13.45 FPS | **52.39 FPS**（mAP 0.55） |
+| SSD_MobileNet_v1 | 8.47 FPS | **65.68 FPS**（mAP 0.84） |
+| MobileNetV2（分类） | 17.41 FPS | **101.90 FPS**（Top1 71.3%） |
+| InceptionV3 | 2.2 FPS | **58.32 FPS**（Top1 75.8%） |
+| SSD_VGG16 | 1.29 FPS | 14.06 FPS（mAP 0.89） |
+
+**注意 `17.41` 这个数。** 在 AIIA 官方表里，它不属于麒麟 980，而属于
+**第二台设备 ROC_RK3399_PC 的 TENGINE CPU 后端**：
+
+> ROC_RK3399_PC | CortexA72_x_2 CortexA53_x_4 | **CPU** | **TENGINE** | Android
+> mobilenet_v2: **17.41** FPS / 73.30% / 91.30%
+> inception_v3: **2.2** FPS · vgg16: **1.115** FPS · resnet101: **1.94** FPS
+> （目标识别 / 超分 / 分割全部为 `-`，即不支持）
+
+而麒麟 980 那行是：
+
+> Huawei_Mate_20 | kirin_980 | **NPU** | **HIAI** | Android
+> INT8: mobilenet_v2 **101.90** · resnet101 43.78 · vgg16 32.38 · inception_v3 58.32
+>       ssd_mobilenetv1 **65.68** · ssd_mobilenetv2 **52.39** · ssd_vgg16 14.06 · vdsr 12.42
+> FP16: mobilenet_v2 54.20 · resnet101 21.98 · vgg16 13.53 · inception_v3 32.93
+>       ssd_mobilenetv1 35.00 · ssd_mobilenetv2 29.97 · ssd_vgg16 7.28 · vdsr 7.64 · fcn 1.39
+
+**结论：原分析把 RK3399 的 CPU 成绩和 980 的 NPU 成绩混在一张表里，
+并且整张表标错了设备。这不是小瑕疵——它直接导致"NPU 只有 13–17 FPS，
+只够做粗粒度事件判断"的误判，而真实情况是 NPU 能跑 50–100 FPS，
+远超这个场景所需。**
+
+### 为什么会混？
+
+原分析引的是「研报客」那篇对 22 页 PPT 的**二次转述**。那份转述把
+图 4/图 5/图 6 三张表的数字混排了，DUT1 和 DUT2 的列没有分开。
+**教训：引用第三方基准时，必须回到项目官方仓库核对原始表格。**
+
+### 正确的仓库地址
+
+原分析给的两个地址都失效（404）：
+
+- ~~`github.com/AIIABenchmark/AIIABenchmark`~~ ❌
+- ~~`github.com/AllABenchmark/AllABenchmark`~~ ❌
+
+真实地址：
+
+- **`github.com/AIIABenchmark/AIIA-DNN-benchmark`** ✅
+  （Java，Apache-2.0，46 stars，最后 push 2021-07-23）
+
+---
+
+## 错误 2 · 「NNAPI 走捷径」是幻觉
+
+原分析的收尾写道：
+
+> 如果 EMUI 9.1 的 NNAPI 挂了 HiAI 后端……MNN 开个 `-DMNN_NNAPI=ON`
+> 就能吃上 NPU，整条路从"一个月"变成"一个周末"。这是最值得先验证的一格。
+
+**这个乐观结论不成立。** 三个独立来源一致：
+
+### 来源 1 · ETH 苏黎世 AI Benchmark 论文（ECCVW 2018）正文
+
+> Starting from Android 8.1 (EMUI 8.1), Huawei is including NNAPI drivers
+> for its Kirin 970/980 chipsets that are generally based on the HiAI
+> implementation. **Currently, they are providing support only for
+> 16-bit float models, quantized networks will be supported in the
+> future releases.**
+
+### 来源 2 · Anandtech / IT之家 对 Mate 20 的实测
+
+> 接下来的 **INT8 的测试，华为 Mate 20 依旧没有使用到 NPU 功能**……
+> 在进行 **FP16 测试时，华为 Mate 20 终于用到了麒麟 980 的 NPU 功能**。
+
+### 来源 3 · AI Benchmark 官方在榜单旁的标注
+
+> ……而且同时支持浮点和量子化 AI 模型加速，**而 Kirin 980 只支持浮点
+> AI 模型加速**，所以成绩才如此之高。
+
+### 意味着什么
+
+| 你想达成的 | NNAPI 能不能做到 |
+|---|---|
+| 模型跑在 NPU 上 | ✅ 能（但**只有 FP16**） |
+| 用 INT8 量化模型 | ❌ 不能，会静默回落 CPU/GPU |
+
+**「静默回落」是最坑的地方**：NNAPI 正常返回结果、不报任何错，
+只是活儿全在 CPU 上干了。你以为在用 NPU，其实没有。
+
+### 修正后的路线判断
+
+| 想要 INT8 + NPU | 唯一正路 | 官方成绩（Mate 20） |
+|---|---|---|
+| ✅ | **HiAI DDK 离线模型（.nb）** | SSD-MobileNetV2 **52.39 FPS** |
+| 只要 FP16 + NPU | NNAPI（MNN / TFLite delegate） | SSD-MobileNetV2 **29.97 FPS** |
+| 纯 CPU | ncnn int8 | 取决于你的模型，980 CPU 本身就很快 |
+
+**DDK 版本必须匹配芯片**（华为官方对照表）：
+
+| DDK 版本 | 对应芯片 |
+|---|---|
+| HIAI DDK V150 | Kirin 970 |
+| **HIAI DDK V200** | **Kirin 980** ← 你要的是这个 |
+| HIAI DDK V300 | Kirin 810 / 820 / 985 / 990 |
+
+---
+
+## 站得住的部分
+
+1. **「NPU 的价值不在峰值性能，在不抢 CPU」** —— 核心论点正确。
+2. **「技术史复现 > 跑分」的价值排序** —— 正确。
+3. **本地 LLM / Stable Diffusion / 华为官方 AI 影像 都不值得做** —— 判断正确。
+4. **A 类场景（与串流共存）才是 NPU 不可替代的位置** —— 逻辑正确。
+
+---
+
+# B · 真机实测（一台安卓真机 / Android 10）
+
+## 设备档案
+
+| 项 | 实测值 |
+|---|---|
+| 型号 | 一台安卓真机 |
+| SoC | **kirin980**（`ro.hardware` / `ro.board.platform` 均为 kirin980） |
+| 系统 | **EMUI 14.0.0 / Android 10 (API 29)**，build 4.0.0.121 |
+| 安全补丁 | 2020-11-01 |
+| CPU | 8 核：`cpu0-3` = A55 @1.805GHz，`cpu4-5` = A76 @1.92GHz，`cpu6-7` = A76 @2.6GHz |
+| 内存 | 7.4 GB total |
+| root | 无（正常） |
+| 相机 | 6 个（Camera HAL v3.4） |
+| 供电 | USB 供电中 |
+
+### ★ 两个「装机事实」与原分析的假设不同
+
+**① 这台机器是 EMUI 14 / Android 10，比所有历史证据覆盖的 EMUI 9.x 新两年。**
+
+历史证据（2018-2019）说"980 的 NNAPI 只支持 FP16"。**但那说的是 EMUI 9.x。
+你这台是 EMUI 14，华为很可能已经修了 int8 派发。**
+所以「int8 走不到 NPU」这条结论**在本机必须实测验证，不能直接照搬**。
+
+**② 核编号顺序和原分析假设的相反。**
+
+原分析和我最初的文档都写"小核是 cpu4-7"。**实测是反的**：
+`cpu0-3` = A55 小核（CPU part `0xd05`），`cpu4-7` = A76 大核（CPU part `0xd40`）。
+
+> ⚠️ **绑核实验必须以 `/proc/cpuinfo` 的 CPU part 实读为准，不能靠猜。**
+> `probe/probe_device.sh` 现在会自动读出并打印这个映射。
+
+---
+
+## NPU 硬件盘点：完全在，而且双核
+
+| 检查项 | 结果 |
+|---|---|
+| `/sys/devices/platform/` | ✅ `ff400000.cambricon-npu`、`npu-core0`、`npu-core1`、`smmu_npu` |
+| NPU 核心数 | **2**（`npu-core0` / `npu-core1`，符合 980 双 NPU 设计） |
+| `/system/lib64` | ✅ `libhiai_adapter_hnn.so`、`libhiai_hnn.so`、`libhiai_ir_build_hnn.so`、`libheterneural_runtime.so`、`libneuralnetworks.so` |
+| `/vendor/lib64` | ✅ `libhiai_mlu.so`、`libhiai_executor.so`、`libhiai_server.so`、`libhiai_client.so`、`libhiai_ann_mlu.so`、`libhiai_hcs.so`、`libhiai_hidl*.so` |
+| HIDL 服务 | ✅ `vendor.huawei.hardware.ai@1.0/1.1/1.2/1.3::IAiEngineService/hiaiserver`<br>✅ `vendor.huawei.hardware.ai@2.0/2.1::IAIService_hidl/hiaiserver_v2`<br>✅ `vendor.huawei.hardware.ai@2.0/2.1::IModelManagerService_hidl/hiaiserver_modelmanager` |
+| **标准 NNAPI 接口** | ✅ `android.hardware.neuralnetworks@1.0::IDevice/ipuadaptor`<br>✅ `android.hardware.neuralnetworks@1.1::IDevice/ipuadaptor` |
+| `/dev/hiai` 之类节点 | ❌ 无（华为走 HIDL，不暴露传统设备节点） |
+| `/proc/interrupts` NPU 行 | ❌ 无可见行 |
+
+### 这组数据说明什么
+
+**`android.hardware.neuralnetworks@1.0/1.1::IDevice/ipuadaptor` 就是答案。**
+
+`ipuadaptor` 是华为为**标准 Android NNAPI 接口**提供的适配器实现，
+配合 `libhiai_adapter_hnn.so`（HNN = HiAI Neural Network），
+构成 **标准 NNAPI → ipuadaptor → HNN → HiAI Server → NPU** 的完整链路。
+
+也就是说：**「NNAPI 能不能用上 NPU」这一格，在本机答案是「链路完整存在」。**
+
+但**链路存在 ≠ int8 会被派发过去**。这正是需要在真机上实测的那一格
+（见 `01-决策树.md` Gate 1）。
+
+> 另外 `hiaiserver` 跑的是 `IAiEngineService`（V1）与 `IAIService_hidl`（V2）
+> 两代接口，**V2 对应的是 DDK V200 之后的运行时**。
+> 这对本机用 DDK 有利——比 2019 年的原始 DDK 配套更现代。
+
+---
+
+## ★ Gate 0 实测结论：串流几乎不抢 CPU
+
+**这是整个项目最关键的实测数据。**
+
+测试条件：Moonlight **正在串流**（实测接收速率 ~215–235 KB/s，约 1.7–1.9 Mbps，
+流量走 USB 共享网卡 `rndis0`），三个阶段各采样 15 秒。
+
+| 阶段 | 整机 CPU 占用 | 分核分布 | RTT 抖动 |
+|---|---|---|---|
+| `baseline`（串流中，作为基线） | **7.2%** | cpu0-3 各 1.2–2.5% | 0.0 ms |
+| `streaming`（同状态复测） | **6.5% – 8.7%** | cpu0-3 各 1.2–2.4% | 0.0–0.1 ms |
+| `streaming+load`（额外注入 3 个满载核） | **42.3% – 43.6%** | **cpu0-3 各 7.8–12.5%** | **0.0 → 0.4 ms** |
+
+**数据可信度交叉验证**（三种独立方法在同一次干净采样下）：
+
+| 方法 | 结果 |
+|---|---|
+| `/proc/stat` 差值（脚本用） | 6.3% – 7.6% |
+| `top -b -n 1` 的 `%idle` 换算 | 730/800 idle → **8.75%** |
+| `dumpsys cpuinfo`（**注意是历史窗口，不可直接用**） | 历史值，不可作实时判据 |
+
+### 三个结论
+
+**① 串流净增 CPU ≈ 0.5%。**
+手机整机 8 核，串流只占 **8.7%** 的总算力。
+**「串流抢 CPU，检测必须上 NPU」这个前提，在你的实际配置下不成立。**
+
+**② 注入 35% 的额外 CPU 负载，RTT 抖动纹丝不动（0.1ms → 0.1ms）。**
+瓶颈既不在 CPU，也不在 USB 链路——**在 PC 端的编码器**（GPU/编码器）。
+
+**③ 为什么串流不抢 CPU？**
+因为 **Moonlight 的视频解码走的是 DV 硬件解码器**（`media.codec` / `media.extractor`
+等 media 服务在跑，CPU 只承担网络收包、音频、输入注入）。
+CPU 真正被占用的是**协议栈与音频**，不是解码。
+
+实测佐证：`com.limelight.unofficialA` 进程各线程占比——
+`Thread-1472` 6.8%、`Thread-1471` 3.4%、`Video - Renderer` 3.4%、
+`CodecLooper` 3.4%，而 `VideoRecv` / `AudioRecv` / `InputSend` 全是 0.0%。
+
+### 这对项目意味着什么
+
+**NPU 从「必需品」降级为「可选项」。**
+
+| 收益 | 结论 |
+|---|---|
+| **延迟不受影响** | 检测跑 CPU 也不会拖垮串流（因为串流本来就不占 CPU） |
+| **能效** | NPU 更省电 → 手机插着 USB 长期供电时意义不大 |
+| **技术史价值** | **仍然成立，且现在是唯一剩下的理由** |
+
+**所以现在的最优路线是：**
+
+```
+Gate 2：CPU 版（ncnn int8）+ 绑小核（cpu0-3）
+   ↓ 如果延迟确实不受影响（按实测，大概率不会）
+项目可以就此收工，不需要 DDK / NPU
+   ↓ 如果要做完整的技术史复现
+Gate 3：HiAI DDK V200 + .nb 离线模型
+```
+
+**但别急着收工——** 还有一格没验：
+**这台 EMUI 14 的机器，int8 走 NNAPI 到底上不上 NPU？**
+这关系到 DDK 那条路值不值得走。测法见 `01-决策树.md` Gate 1。
+
+---
+
+## ✅ Gate 1 · int8 上 NPU 在本机怎么实现？—— 已用华为自家插件证实
+
+### 决定性证据：华为官方插件的命名与模型格式
+
+本机 `/data/app/com.huawei.hiai-1Y9jlVuRseIC2NscLtfwIg==/` 下有 30+ 个视觉插件 APK，
+**华为用文件名后缀直接标明了调度策略**：
+
+| 插件包名 | 后缀含义 |
+|---|---|
+| `visionplugin-facelandmark-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-carddetect-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-headpose-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-portraitseg-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-sisr-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-txtimagesr-**kirin980**-china-release.apk` | 走 **NPU** |
+| `visionplugin-facerating-**cpu**-china-release.apk` | 走 **CPU** |
+| `visionplugin-facedetect-**common**-china-release.apk` | 通用 |
+| `visionplugin-labeldetect-**common**-china-release.apk` | 通用 |
+
+### 拉下来看模型格式，结论完全一致
+
+**NPU 版（`-kirin980`）**：`visionplugin-facelandmark-kirin980-china-release.apk`
+
+```
+   5392664  assets/HwFaceLandmark_980.cambricon    ← 寒武纪离线模型
+   1239576  assets/get_box_980.cambricon            ← 同上
+    338472  lib/arm64-v8a/libOpenAIFairlight.so
+   1926952  lib/arm64-v8a/libFNFD.so
+```
+
+**CPU 版（`-cpu`）**：`visionplugin-facerating-cpu-china-release.apk`
+
+```
+   1160640  assets/headpose.ms     ← MNN 模型（.ms）
+      7643  assets/headpose.bin
+   1490840  assets/emotion.ms      ← 同上
+```
+
+### `.cambricon` 文件头解析
+
+```
+0000  7f 4d 45 46 14 12 05 1f 01 00 00 00 0a 00 00 00   .MEF............
+0010  67 65 74 5f 62 6f 78 39 38 30 00 00 00 00 00 00   get_box980......
+```
+
+- **magic = `\x7fMEF`** → **MEF = Cambricon Model Exchange Format**
+  （寒武纪离线模型格式，由 DDK 的 `omg` 工具生成）
+- 模型名内嵌：`landmark980` / `get_box980`（**文件名后缀对应芯片**）
+- 可见符号：`saveModelToFile`（DDK omg 的导出函数）、`subnet0`（子图划分）
+- 量化结构：`shortcut_bn_scal`（**bn_scale = 量化 scale 参数**）
+  → 权重带量化 scale，**确认是 int8 量化模型**
+
+### 这组证据说明什么
+
+**华为自己在量产 ROM 里，就是用「DDK 离线模型 + int8」来跑 Kirin 980 NPU 的。**
+
+| 问题 | 答案 |
+|---|---|
+| Kirin 980 的 NPU 能跑 int8 吗？ | **能**（华为自家 `-kirin980` 插件就是 int8 离线模型） |
+| 走的什么路径？ | **DDK 离线模型**（`.cambricon` / MEF 格式），不是 NNAPI |
+| NNAPI 那条捷径呢？ | 华为官方**没用**——他们直接上 DDK |
+| CPU 方案怎么做的？ | **MNN**（`.ms` + `.bin`） |
+
+**所以 Gate 1 的答案是：**
+
+> **INT8 + NPU 在本机完全可行，但必须走 HiAI DDK 离线模型（.cambricon/.nb），
+> NNAPI 那条捷径是走不通的——华为自己的生产代码就是证明。**
+
+**并且意外收获**：华为的 CPU 方案用的是 **MNN**（`.ms` + `.bin` 格式），
+不是 ncnn。这意味着 `Tengine`/`MNN` 路线在本机有官方实践背书。
+
+---
+
+## ⚠️ 实测中踩到的坑（已全部修进脚本）
+
+| 坑 | 现象 | 修复 |
+|---|---|---|
+| **USB 共享网卡不在 wlan0** | 脚本判定"没在串流"，实际在串流 | 统计**所有**非 lo 网卡的流量 |
+| **Moonlight 挂着 ≠ 在串流** | 进程和窗口都在，但流量为 0 | 脚本新增 `stream_active` 自动校验 |
+| **toybox taskset 语法不同** | `taskset -c 4,5,6,7` 报 `Unknown option c` | toybox 用**十六进制掩码**：`taskset 0x0f cmd` |
+| **taskset 掩码方向搞反** | 以为 cpu4-7 是小核 | 实测 cpu0-3 才是小核（A55） |
+| **ICMP 不通** | ping PC 100% 丢包 | RNDIS 不透传 ICMP；改 ping 手机自身 rndis 地址（0.3ms/0.1ms 抖动） |
+| **Windows 防火墙拦入站** | 手机连 PC 的 445/22/47984 全失败 | **必须 PC 主动连手机**（这也正是事件通道的设计方向） |
+| **grep -E 不认 `\t`/`\s`** | 正则静默不匹配 | 改用 awk / 精确字符类 |
+| **`[ -d ]` 在 PC 上判断设备路径** | CPU 频率表全空 | 改成到设备上 `test -d` |
+| **★ kill 父 shell 杀不掉死循环子进程** | **残留进程各占满一核，把「串流占用」从 7.6% 顶到 42%，数据直接失真** | 按 cmdline 特征扫尾清理 + 新增 `probe/cleanup_load.py` 兜底 |
+| **★ `top \| grep` 匹配到自己** | grep 的命令行里也含 "while :"，kill 时误杀父 shell → SIGTERM | 改为遍历 `/proc/<pid>/cmdline`，模式串用变量拼接避免自匹配 |
+| **`dumpsys cpuinfo` 是历史窗口** | 进程已死，它仍显示 99% | 只作参考，实时判据用 `/proc/stat` 或 `top` |
+| **toybox `pkill -f` 不可靠** | 匹配不到残留进程 | 改用 PID 精确 kill |
+| **`top` 默认输出截断进程名** | 看不到是哪个进程在烧 CPU | 用 `top -o PID,%CPU,CMDLINE` |
+| **`adb pull` 在 Git Bash 下路径被改写** | `failed to stat remote object` | 改用 `adb exec-out "cat <path>"` 走管道 |
+
+---
+
+## 数据出处
+
+| # | 来源 | 用到的内容 |
+|---|---|---|
+| 1 | `github.com/AIIABenchmark/AIIA-DNN-benchmark` README（master） | 980 INT8/FP16 完整成绩表、RK3399 TENGINE CPU 成绩 |
+| 2 | AI Benchmark 论文 arXiv:1810.01109（ECCVW'18）§2.2 | 华为 NNAPI 驱动基于 HiAI、当时仅支持 16-bit float |
+| 3 | IT之家 / Anandtech《华为Mate 20的NPU性能测试》 | INT8 未用 NPU、FP16 才调用 NPU |
+| 4 | TechNave 引 AI Benchmark 官方标注 | "Kirin 980 只支持浮点 AI 模型加速" |
+| 5 | 华为开发者联盟《Model Integration》 | DDK 版本 ↔ 芯片对照表（980 → V200） |
+| 6 | 华为开发者联盟《HiAI开发指导》 | 模型分段、算子兼容性报告、混合执行机制 |
+| 7 | **本机实测**（`probe/` + `bench/`） | 设备档案、NPU 盘点、Gate 0 三阶段数据 |

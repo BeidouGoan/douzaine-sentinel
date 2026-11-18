@@ -1,0 +1,13 @@
+{
+  "action": [
+    "notify",
+    "lock"
+  ],
+  "trigger": "absent",
+  "absent_seconds": 0,
+  "present_seconds": 1,
+  "cooldown": 30,
+  "mode": "direct",
+  "phone_host": "",
+  "dry_run": true
+}

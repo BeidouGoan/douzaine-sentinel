@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置页 · activity_settings.xml
+  ============================================
+  ★ 分组逻辑（按「用户为什么调它」分组，而不是按技术类型）：
+    看人准不准  → 离开确认时长、置信度阈值
+    跑得快不快  → 目标帧率、绑定小核
+    这是怎么算的 → 说明文案
+
+  ★ 每项参数的三段式：名称 + 一句人话解释 + 控件。
+    原界面只有数字没有解释，用户根本不知道调高调低会怎样。
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <!-- ★ 必须用 AppBarLayout 包住 Toolbar：
+         CoordinatorLayout 靠 app:layout_behavior 让内容避开 AppBar，
+         直接放裸 Toolbar 会让下方内容顶上来盖住标题（实测重叠）。 -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/background"
+        app:elevation="0dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/background"
+            app:navigationIcon="@drawable/ic_back"
+            app:title="@string/settings_title"
+            app:titleTextAppearance="@style/TextAppearance.DouZaiMa.Title"
+            app:titleTextColor="@color/on_surface"
+            app:titleMarginStart="12dp" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/space_xxl"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:paddingTop="@dimen/space_s">
+
+            <!-- ===== 分组 1：看人准不准 ===== -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_l"
+                android:layout_marginBottom="@dimen/space_s"
+                android:paddingStart="@dimen/space_xs"
+                android:text="@string/settings_section_detect"
+                android:textAppearance="@style/TextAppearance.DouZaiMa.Section"
+                android:textColor="@color/primary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DouZaiMa.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- 离开确认时长 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_absent_seconds"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/setting_absent_seconds_desc"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Caption"
+                        android:textColor="@color/on_surface_muted" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/slider_absent_seconds"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:stepSize="1"
+                        android:valueFrom="0"
+                        android:valueTo="60"
+                        app:labelBehavior="withinBounds"
+                        app:tickVisible="false" />
+
+                    <TextView
+                        android:id="@+id/label_absent_seconds"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="-8dp"
+                        android:layout_marginBottom="@dimen/space_s"
+                        android:gravity="end"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/primary"
+                        tools:text="8 秒" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="@dimen/space_s"
+                        android:background="@color/outline" />
+
+                    <!-- 置信度阈值 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_threshold"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/setting_threshold_desc"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Caption"
+                        android:textColor="@color/on_surface_muted" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/slider_threshold"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:stepSize="0.01"
+                        android:valueFrom="0.10"
+                        android:valueTo="0.90"
+                        app:labelBehavior="withinBounds"
+                        app:tickVisible="false" />
+
+                    <TextView
+                        android:id="@+id/label_threshold"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="-8dp"
+                        android:layout_marginBottom="@dimen/space_s"
+                        android:gravity="end"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/primary"
+                        tools:text="0.40" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== 分组 2：跑得快不快 ===== -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:layout_marginBottom="@dimen/space_s"
+                android:paddingStart="@dimen/space_xs"
+                android:text="@string/settings_section_perf"
+                android:textAppearance="@style/TextAppearance.DouZaiMa.Section"
+                android:textColor="@color/primary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DouZaiMa.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- 目标帧率 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_fps"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/setting_fps_desc"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Caption"
+                        android:textColor="@color/on_surface_muted" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/slider_fps"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:stepSize="5"
+                        android:valueFrom="5"
+                        android:valueTo="20"
+                        app:labelBehavior="withinBounds"
+                        app:tickVisible="false" />
+
+                    <TextView
+                        android:id="@+id/label_fps"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="-8dp"
+                        android:layout_marginBottom="@dimen/space_s"
+                        android:gravity="end"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/primary"
+                        tools:text="15 帧/秒" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="@dimen/space_s"
+                        android:background="@color/outline" />
+
+                    <!-- 绑定小核 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_pin_cpu"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/on_surface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/setting_pin_cpu_desc"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Caption"
+                        android:textColor="@color/on_surface_muted" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_pin_cpu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_s"
+                        android:minHeight="48dp"
+                        android:text="@string/setting_pin_cpu_on"
+                        android:textOn="@string/setting_pin_cpu_on"
+                        android:textOff="@string/setting_pin_cpu_off"
+                        android:textAppearance="@style/TextAppearance.DouZaiMa.Body"
+                        android:textColor="@color/on_surface" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== 分组 3：说明 ===== -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:layout_marginBottom="@dimen/space_s"
+                android:paddingStart="@dimen/space_xs"
+                android:text="@string/settings_section_about"
+                android:textAppearance="@style/TextAppearance.DouZaiMa.Section"
+                android:textColor="@color/primary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DouZaiMa.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/about_body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/setting_about_body"
+                    android:textAppearance="@style/TextAppearance.DouZaiMa.Caption"
+                    android:textColor="@color/on_surface_variant" />
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

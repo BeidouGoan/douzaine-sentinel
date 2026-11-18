@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通知栏小图标
+  ============================================
+  ★ 通知小图标必须是纯白剪影 + 透明背景，
+    系统会自己给它上色并裁成圆形。这里用哨兵之眼，
+    保持和 App 图标同一套视觉语言。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:pathData="M31,58 A23,23 0 0 1 77,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M54,49 A9,9 0 1 1 53.99,49 Z"
+        android:fillColor="#FFFFFF" />
+
+</vector>

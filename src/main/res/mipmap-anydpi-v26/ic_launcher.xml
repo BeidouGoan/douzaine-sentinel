@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（API 26+）
+  ============================================
+  前景层 = 哨兵之眼（雷达弧 + 瞳孔）
+  背景层 = 品牌蓝实底
+  系统会按各家桌面的形状裁切，矢量保证任意裁切下都不糊。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

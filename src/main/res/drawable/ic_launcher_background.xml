@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标背景层
+  ============================================
+  纯品牌蓝实底。不用渐变，原因：
+  自适应图标会被裁成圆形/方形/水滴等形状，
+  渐变在不同裁切下观感不一致，实底最稳。
+  层次感由前景的雷达弧提供。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:pathData="M0,0 H108 V108 H0 Z"
+        android:fillColor="#2F6FE0" />
+
+</vector>

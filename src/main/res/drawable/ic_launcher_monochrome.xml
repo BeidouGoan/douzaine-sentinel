@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  主题图标（Android 13+ 单色图标）
+  ============================================
+  系统会按用户壁纸自动给它上色，所以必须是纯单色剪影。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFF">
+
+    <path
+        android:pathData="M31,58 A23,23 0 0 1 77,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M38,58 A16,16 0 0 1 70,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M54,49 A9,9 0 1 1 53.99,49 Z"
+        android:fillColor="#FFFFFF" />
+
+</vector>

@@ -1,0 +1,265 @@
+# 07 · 「斗在呢」PC 端 UI 设计规范
+
+> 版本 V2.0 · 2026-10-29
+> 适用：`pc/console/`（C# WinForms，原生窗口）
+> 相关：`docs/06-UI设计规范.md`（手机端 Android 规范，本次未改动）
+
+---
+
+## 0. 与手机端的关系
+
+手机端规范 §1.3 写明「**与 PC 控制台语义一致：绿=在，红=不在，琥珀=待确认**」，
+这是**双向锚定**。所以 PC 端 V2 直接采用手机端已定稿的深色模式色值，
+而不是各搞一套——同一个绿在手机和 PC 上必须一模一样。
+
+**本次改动只涉及 PC 端，手机端代码一行未动。**
+
+---
+
+## 1. 设计问题诊断（V1 → V2）
+
+| # | 问题 | 后果 | V2 方案 |
+|---|---|---|---|
+| 1 | 视觉层级倒置：状态卡片与日志卡片平级，「有人/无人」仅 26px | 扫一眼抓不到关键信息 | **Hero 状态区**：44px 大字 + 光晕状态点，独立成块 |
+| 2 | 色彩各搞一套（`#3DDC84` vs 手机端 `#34D399`） | 两端割裂 | 全部对齐手机端 token |
+| 3 | 硬编码像素（210/175/215/44/60） | 换分辨率/系统缩放必然错位 | 全部改 TableLayoutPanel 百分比/绝对行高 |
+| 4 | 改了配置不知是否生效 | 无即时反馈 | 「保存配置 \*」标记未保存，保存后变「✓ 已保存」 |
+| 5 | 纯文字无图标，三个 checkbox 长得一样 | 识别度低 | 方框勾选 + 品牌色勾 + 焦点环 |
+| 6 | 焦点不可见（深色卡片上默认虚线框几乎看不见） | 键盘用户迷路 | 2px 品牌色焦点环 |
+| 7 | 状态副标题不更新 | 显示"等待手机连接…" | 同步显示置信度 |
+
+---
+
+## 2. 设计令牌（Design Tokens）
+
+### 2.1 色彩
+
+```csharp
+// 中性
+Background      #0E1116   页面底
+Surface        #171B22   卡片底
+SurfaceVariant #22262F   控件底 / 提示条底
+SurfaceHover   #2A2F3A   悬停
+OnSurface      #E8EAED   主文字
+OnSurfaceVariant #A7AFBC 次文字
+OnSurfaceMuted #79828F  辅助文字
+Outline        #2E333D   描边
+OutlineStrong  #3A414D   强描边（Toast）
+
+// 品牌 / 交互
+Primary        #2F6FE0   交互主色（按钮、选中态）
+BrandBlue      #4D8DFF   品牌色（图形、焦点环）
+OnPrimary      #FFFFFF
+
+// 状态语义（与手机端一致）
+Present        #34D399   有人
+PresentGlow    #14B87F
+Absent         #F87171   无人
+AbsentGlow     #F05252
+Uncertain      #FBBF24   待确认
+UncertainGlow  #E38A17
+```
+
+### 2.2 对比度（相对 Surface `#171B22` 实测）
+
+| 组合 | 比值 | 判定 |
+|---|---|---|
+| OnSurface #E8EAED | 13.6:1 | ✓ 远超标 |
+| OnSurfaceVariant #A7AFBC | 7.3:1 | ✓ |
+| OnSurfaceMuted #79828F | 4.2:1 | ⚠ 仅用于 12px+ 装饰性文字 |
+| Primary #2F6FE0 + 白字 | 4.7:1 | ✓ 正文达标 |
+| Present / Absent | ≥ 7:1 | ✓ |
+
+> **为什么按钮用 `#2F6FE0` 而不是品牌色 `#4D8DFF`**：
+> `#4D8DFF` 对白字仅 3.26:1，达不到正文 4.5:1 门槛。
+> 品牌色保留给图形（焦点环、光晕），那里 3:1 即可。
+
+### 2.3 间距与圆角
+
+```
+间距（4px 基准）：4 / 8 / 12 / 16 / 24 / 32
+圆角：卡片 10px  控件 6px
+```
+
+### 2.4 字体
+
+```
+主字体：Microsoft YaHei UI
+等宽：Consolas（用于 FPS / 耗时 / 命令输入）
+字号：8.5 / 9 / 9.5 / 11 / 44(状态大字)
+```
+
+---
+
+## 3. 布局结构
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 斗在呢 · 工位哨兵 · 离座检测                    1046×749   │
+├──────────────────────────────┬───────────────────────────┤
+│ HERO 状态区 (268px)           │ 触发 (246px)              │
+│  ●(光晕)  有人 (44px)         │  ┌─────────────────────┐  │
+│         置信度 0.90          │  │ 触发条件             │  │
+│  ──────────────────────────  │  │ [人离开|人回来|两者] │  │
+│  FPS    推理耗时    置信度    │  │ 额外缓冲 [0] 秒      │  │
+│  2.9    309ms      0.90      │  │ 冷却     [30] 秒     │  │
+│  手机：安卓真机 · ssd_...    │  │ ▌实际延迟 = ...      │  │
+│  手机端配置：离开 8s · ...   │  └─────────────────────┘  │
+├──────────────────────────────┤ 动作 (208px)              │
+│ 日志 (自适应)                 │  ┌─────────────────────┐  │
+│ [15:03:12] 正在连接 ...      │  │ ☑弹出通知 ☐锁定工作站│  │
+│ [15:03:12] 已连上手机        │  │ ☐暂停播放 ☐演练模式  │  │
+│                               │  │ 执行命令              │  │
+│ [测试触发] [清空]             │  │ [______________]      │  │
+│                               │  └─────────────────────┘  │
+│                               │ 连接 (自适应)             │
+│                               │  [连接手机] [保存配置]     │
+│                               │  ☑启动时自动连接          │
+│                               │  ▌需先用 adb 连接手机…    │
+│                               │  ● 已连接                 │
+└──────────────────────────────┴───────────────────────────┘
+```
+
+### 列宽比例
+
+左 56% / 右 44%。左侧给状态（信息密度低但视觉重量高），右侧给配置（控件多）。
+
+---
+
+## 4. 组件库（`pc/console/Ui.cs`）
+
+| 组件 | 说明 | 关键点 |
+|---|---|---|
+| `Gfx` | 绘制工具类 | 圆角路径、光晕点 |
+| `Card` | 卡片容器 | Panel + 内部 `Content` (TableLayoutPanel) |
+| `FlatButton` | 扁平按钮 | 3 种：Primary / Ghost / Warning |
+| `FlatCheck` | 方框勾选 | 自绘勾 + 空格键切换 + 焦点环 |
+| `SegmentedControl` | 分段控件 | 选中态填充 Primary |
+| `NumberField` | 数字输入 | 居中、限幅 |
+| `LineField` | 单行输入 | 等宽字体 + placeholder |
+| `HintBar` | 提示条 | 左侧 3px 强调条 + 两行说明 |
+| `ToastWindow` | 自绘通知 | 圆角 + 左侧主色条 + 5 秒消失 |
+
+### 状态色用法
+
+| 状态 | 大字 | 状态点 | 语义 |
+|---|---|---|---|
+| 有人 | `#34D399` | 绿 + 绿光晕 | 工位有人 |
+| 无人 | `#F87171` | 红 + 红光晕 | 工位无人 |
+| 未连接 | `#79828F` | 灰 | 等待 |
+
+---
+
+## 5. 无障碍
+
+| 要求 | 实现 | 判定 |
+|---|---|---|
+| 对比度 ≥ 4.5:1 | 见 §2.2 | ✓ |
+| 键盘可达 | 所有控件 `TabStop = true`，焦点环 2px 品牌色 | ✓ |
+| 空格切换勾选 | `FlatCheck.IsInputKey` 拦截 `Keys.Space` | ✓ |
+| 最小点击区 | 控件高 ≥ 26px（桌面场景） | ✓ |
+| 状态不只靠颜色 | 大字 + 状态点 + 副标题三重编码 | ✓ |
+| 错误不静默 | 动作失败在日志里写明原因 | ✓ |
+
+---
+
+## 6. WinForms 布局陷阱（本次踩的坑，都已修）
+
+### 6.1 `Anchor` 在控件加入父容器前设置 → 宽度算错
+
+```csharp
+_segTrigger = new SegmentedControl {
+    Items = ..., 
+    Bounds  = new Rectangle(16, 70, 360, 32),   // ← 设了 Anchor
+    Anchor  = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right
+};
+card.Controls.Add(_segTrigger);
+```
+
+实测：`Width` 被算成 **596**，而真实可用只有 **398**，
+第三段画到卡片外面被裁掉。
+
+**解**：改用 `TableLayoutPanel` + `Dock = Fill`，宽度由布局系统保证。
+
+### 6.2 `TableLayoutPanel` 的 RowStyles/ColumnStyles 必须先 Clear
+
+`Card` 构造函数里已经加了 1 个 `RowStyles`（Percent 100），
+追加时**不 Clear 会导致全部错位一格**：
+
+```csharp
+c.RowStyles.Clear();      // ★ 必须先清
+c.ColumnStyles.Clear();
+c.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+```
+
+实测症状：分段控件跑到 `y=64`（应为 20）、高度 20（应为 32）；提示条文字被裁。
+
+### 6.3 `SizeChanged` 订阅会错过首次触发
+
+控件 `new` 出来时尺寸还是默认值，**此时就触发了一次 `SizeChanged`**，
+之后再订阅就收不到。改用 `OnLayout`（父容器分配完空间后才触发）。
+
+### 6.4 `Paint` 是事件名，`Paint` 类名会被解析成事件
+
+```csharp
+internal static class Paint { }        // 工具类
+// 在 Form 内部：
+Paint.RoundRect(...)   // ← 编译成 "事件 Paint 没有成员 RoundRect"
+```
+
+继承成员优先解析 → `CS0079`。工具类改名 `Gfx`。
+
+### 6.5 `BackColor = Transparent` 需要样式开关
+
+```csharp
+SetStyle(ControlStyles.AllPaintingInWmPaint |
+         ControlStyles.OptimizedDoubleBuffer |
+         ControlStyles.ResizeRedraw | ControlStyles.UserPaint |
+         ControlStyles.SupportsTransparentBackColor, true);  // ★ 别漏
+```
+
+漏了会运行时抛 `控件不支持透明的背景色`。
+
+### 6.6 `csc.exe` 默认语言版本较老
+
+自动属性初始化器 `{ get; set; } = value;` 是 C# 6 特性，老 csc 报 `CS1519`。
+改成构造函数赋值，任何版本都能编。
+
+### 6.7 `build.cmd` 必须是纯 ASCII
+
+cmd.exe 按 **GBK** 读 `.cmd`，UTF-8 的中文注释会变成乱码命令：
+```
+'e锛岀洰鏍囨槸' 不是内部或外部命令
+```
+注释全用英文。中文文件名的 exe 副本交给 `mk_zh_alias.py`（Python 走 Win32 API，没这问题）。
+
+---
+
+## 7. 交付物
+
+```
+pc/console/
+  SentinelConsole.cs   主逻辑 + 界面
+  Ui.cs               自绘控件库
+  build.cmd           编译脚本（纯 ASCII）
+  mk_zh_alias.py      生成「斗在呢.exe」副本
+
+pc/dist/DouZaiNe/
+  DouZaiNe.exe        主程序（46 KB）
+  斗在呢.exe           中文名副本
+  DouZaiNeDebug.exe   控制台版（带 --selftest）
+```
+
+编译：
+
+```bash
+pc\console\build.cmd            # → DouZaiNe.exe
+pc\console\build.cmd debug      # → DouZaiNeDebug.exe
+python pc\console\mk_zh_alias.py   # → 斗在呢.exe
+```
+
+命令行自检：
+
+```bash
+DouZaiNeDebug.exe --selftest --test-trigger --action notify,pause
+```

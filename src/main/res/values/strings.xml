@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  全部用户可见文案
+  ============================================
+  ★ 原则：文案不散落在代码里，全部收进 strings.xml，
+    便于改名（本次：工位哨兵 → 斗在吗）与后续国际化。
+-->
+<resources>
+
+    <string name="app_name">斗在吗</string>
+
+    <!-- ===== 主屏 ===== -->
+    <string name="main_title">斗在吗</string>
+    <string name="main_subtitle_idle">看你在不在工位</string>
+
+    <!-- 状态大字 -->
+    <string name="state_present">有人</string>
+    <string name="state_absent">无人</string>
+    <string name="state_uncertain">待确认</string>
+    <string name="state_idle">未启动</string>
+
+    <!-- 状态说明 -->
+    <string name="hint_present">检测到人，已同步给电脑</string>
+    <string name="hint_absent">没检测到人，已通知电脑</string>
+    <string name="hint_uncertain">画面刚变化，确认一下再走</string>
+    <string name="hint_idle">点下面的按钮开始盯梢</string>
+
+    <!-- 指标 -->
+    <string name="metric_fps">帧率</string>
+    <string name="metric_infer">推理耗时</string>
+    <string name="metric_confidence">置信度</string>
+    <string name="metric_value_placeholder">—</string>
+
+    <!-- 按钮 -->
+    <string name="action_start">开始盯梢</string>
+    <string name="action_stop">停止盯梢</string>
+    <string name="action_settings">调参数</string>
+    <string name="action_back">返回</string>
+
+    <!-- ===== 设置页 ===== -->
+    <string name="settings_title">调参数</string>
+    <string name="settings_section_detect">看人准不准</string>
+    <string name="settings_section_perf">跑得快不快</string>
+    <string name="settings_section_about">这是怎么算的</string>
+
+    <string name="setting_absent_seconds">离开多久算走了</string>
+    <string name="setting_absent_seconds_desc">连续这么久没看见人，才算你真走了。低头拿东西不算。</string>
+    <string name="setting_threshold">多像才算人</string>
+    <string name="setting_threshold_desc">调高=更严格，更不容易误报；调低=更容易把人认出来。</string>
+    <string name="setting_fps">每秒看几帧</string>
+    <string name="setting_fps_desc">看得越勤越费电。一般 15 帧够了。</string>
+    <string name="setting_pin_cpu">只占用小核</string>
+    <string name="setting_pin_cpu_on">已开启 · 大核让给串流解码</string>
+    <string name="setting_pin_cpu_off">已关闭 · 检测可用全部核心</string>
+    <string name="setting_pin_cpu_desc">把检测关在小核里，把大核让给串流解码。代价是推理慢一倍。</string>
+
+    <string name="setting_about_body">· 离开延迟是叠加的，不是覆盖的：手机端这里设 8 秒，电脑端还能再加一层缓冲。\n· 绑核后推理约 3 帧/秒，不绑约 7 帧/秒。对「在不在」这个判断都够用。\n· 电脑端连的是 %1$s 的 %2$d 端口。</string>
+
+    <string name="unit_seconds">%1$d 秒</string>
+    <string name="unit_fps">%1$d 帧/秒</string>
+    <string name="unit_ms">%1$d ms</string>
+    <string name="unit_score">%1$s</string>
+
+    <!-- ===== 本机地址（给电脑端填） ===== -->
+    <string name="net_hint">手机地址 %1$s · 点按复制</string>
+    <string name="net_hint_none">手机地址：未连 WiFi（插 USB 时电脑会自动探测）</string>
+    <string name="net_copied">已复制 %1$s</string>
+
+    <!-- ===== 通知 ===== -->
+    <string name="notif_channel_name">斗在吗 · 盯梢中</string>
+    <string name="notif_channel_desc">保持摄像头检测在后台运行</string>
+    <string name="notif_title">斗在吗正在看着</string>
+    <string name="notif_text">检测工位上还有没有人</string>
+
+    <!-- ===== 状态栏文案（会被电脑端弹窗引用，保持同步） ===== -->
+    <string name="desktop_title">斗在吗</string>
+
+</resources>

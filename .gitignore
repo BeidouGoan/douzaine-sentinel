@@ -1,0 +1,39 @@
+# Gradle / Android 构建产物
+build/
+.cxx/
+.gradle/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 构建产物
+pc/dist/
+pc/console/build/
+pc/console/*.spec
+
+# Python
+__pycache__/
+*.pyc
+
+# 探测脚本的临时输出
+probe/out-hiai/
+
+# 报告：保留最终结论，忽略中间试跑
+reports/detect-2026*.json
+reports/probe-*
+reports/gate0.json
+reports/gate0-final.json
+
+# ===== 发布到 GitHub 时的隐私 / 产物排除 =====
+# 工作记忆与日志（含本机路径、设备序列号），绝不入库
+.workbuddy/
+# 安装包与可执行文件走 Releases，不进 git
+*.apk
+*.exe
+# 带设备型号/本机信息的截图
+docs/img/console.png
+# 临时发布脚本
+.workbuddy/build/gh_publish.py

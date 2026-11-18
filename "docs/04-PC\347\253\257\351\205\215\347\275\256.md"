@@ -1,0 +1,200 @@
+# 04 · PC 端动作配置指南
+
+> 对应文件：`pc/sentinel_receiver.py`　配置文件：`pc/sentinel_config.json`
+
+---
+
+## 一、两种配置方式
+
+### 方式 1 · 配置文件（推荐，常驻用这个）
+
+编辑 **`pc/sentinel_config.json`**，然后：
+
+```bash
+python pc/sentinel_receiver.py
+```
+
+脚本启动时自动加载，**命令行参数会覆盖配置文件里的值**。
+
+### 方式 2 · 命令行（临时测试用）
+
+```bash
+python pc/sentinel_receiver.py --action notify --action lock --absent-seconds 0
+```
+
+---
+
+## 二、配置文件长这样
+
+```json
+{
+  "action": ["notify"],
+  "trigger": "absent",
+  "absent_seconds": 0.0,
+  "present_seconds": 1.0,
+  "cooldown": 30.0,
+  "mode": "direct",
+  "phone_host": "",
+  "dry_run": false
+}
+```
+
+所有字段可选，缺省就用默认值。
+
+---
+
+## 三、四个动作
+
+| 动作名 | 效果 | 实现方式 |
+|---|---|---|
+| `notify` | 弹 Windows Toast 通知 | PowerShell 调 `ToastNotificationManager` |
+| `lock` | **锁定工作站** | `rundll32 user32.dll,LockWorkStation` |
+| `pause` | 暂停当前播放 | `SendKeys` 发媒体播放/暂停键（0xB3） |
+| `exec:<命令>` | 执行任意命令 | `subprocess.run(shell=True)` |
+
+可以组合多个，**按顺序执行**：
+
+```json
+"action": ["notify", "lock", "exec:taskkill /IM notepad.exe"]
+```
+
+### `exec:` 的写法
+
+```json
+"action": ["exec:taskkill /IM notepad.exe"]
+```
+
+注意：
+- 命令跟在冒号后，**不要加引号**（JSON 里用双引号包住整串就行）
+- 用 `shell=True` 执行，所以 `>`、`|`、`&&` 都可用
+- **命令写错不会报错退出**，`exec_cmd` 会返回 `exit=非0` 的说明文字
+- `--action exec`（不带命令）会直接报错退出，避免执行空命令
+
+---
+
+## 四、触发条件
+
+| 字段 | 取值 | 含义 |
+|---|---|---|
+| `trigger` | `absent` | 人**离开**时触发（默认） |
+| | `present` | 人**回来**时触发 |
+| | `both` | 两者都触发 |
+| `absent_seconds` | 数字 | PC 端的额外「离开」缓冲秒数 |
+| `present_seconds` | 数字 | PC 端的额外「回来」缓冲秒数 |
+| `cooldown` | 数字 | 同一动作的最小间隔秒数 |
+
+### ⚠️ 延迟是怎么算的
+
+**两层去抖叠加**，别重复设：
+
+```
+实际触发延迟 ≈ 8 秒（手机端状态机） + absent_seconds（PC 端）
+```
+
+手机端那 8 秒是**必需的**——它防的是「人只是低头/侧身/被短暂遮挡」被误判成离开。
+所以 `absent_seconds` 默认设成 **0**（信任手机端），实际延迟约 8 秒。
+
+想更保守就调大，但别忘了会叠加。
+
+---
+
+## 五、连接方式
+
+| `mode` | 说明 |
+|---|---|
+| `direct` | **默认**。直连手机在 USB 共享网的地址（<手机IP>），已实测可用 |
+| `adb` | 经 `adb reverse` 隧道。注意 PC 端口不能和手机端口相同 |
+| `listen` | PC 监听，等手机主动连过来（手机连 PC 会被 Windows 防火墙拦，不推荐） |
+
+`phone_host` 留空会自动探测手机地址。手动指定：
+
+```json
+"phone_host": "<手机IP>"
+```
+
+---
+
+## 六、完整用法
+
+### 日常使用（配置文件）
+
+```bash
+# 1. 手机侧启动检测
+adb shell am start -n com.yq.sentinel/.MainActivity --ez autostart true --ez pin true
+
+# 2. PC 侧常驻消费
+python pc/sentinel_receiver.py
+```
+
+### 先 dry-run 看看
+
+```bash
+python pc/sentinel_receiver.py --dry-run
+```
+
+`dry-run` 只打印不执行。**建议第一次都先跑这个。**
+
+### 自测动作链路（不用真的离开）
+
+```bash
+python pc/test_actions.py --action notify --action lock
+```
+
+它会模拟 presence 事件，覆盖 6 个场景（有人在 / 短暂离开 / 超时离开 / 持续无人 / 人回来再离开 / present 模式）。
+
+---
+
+## 七、实测验证记录
+
+2026-10-29 真机端到端验证：
+
+```
+[11:36:27] 已加载配置文件: pc\sentinel_config.json
+[11:36:27] 动作集: ['notify']
+[11:36:27] 已连上手机 (第 1 次尝试)
+[11:36:27] 手机端已连接: {"event":"hello","app":"sentinel","backend":"tflite-cpu",
+                           "model":"ssd_mobilenet_v2","pid":9147,"device":"<device>","sdk":29}
+[11:36:28] 检测到人回来，开始计时…
+[11:36:33] 检测到人离开，开始计时…
+[11:36:35] 人已离开 1.3s（超过阈值 0.0s），触发动作
+[11:36:35]   notify: OK dry-run: 未真正弹出通知
+```
+
+模拟「人离开」的方法：把手机端置信度阈值调到 0.99
+（`adb shell am start -n com.yq.sentinel/.MainActivity --es threshold 0.99`），
+高于实测的 0.66，App 就会判定无人。
+
+---
+
+## 八、已修的三个 bug（记录一下，避免以后改回去）
+
+### 1. `--action exec:<命令>` 被 argparse 拦死
+
+原来 `choices=["lock","pause","notify","exec"]` 会拒绝 `exec:xxx`，
+但 help 里明明写着支持这个形式。改成去掉 `choices`，在代码里手动校验。
+
+### 2. `--trigger present` / `both` 完全没实现
+
+参数收下了，`trigger_on_absent` 存了但代码里从没用过。
+现在 `present` / `both` 都真正实现了。
+
+### 3. 一次「离开」重复触发
+
+触发后 `_absent_since` 被清空，下一条 presence 事件又重新计时，
+1 秒后又判定「超过阈值」→ **每 2 秒重复触发一次**。
+`cooldown` 只是掩盖了它——一旦 `cooldown` 设成 0 就会疯狂锁屏。
+
+现在用 `_fired_absent` / `_fired_present` 标志：
+**一次「离开」只触发一次，人回来才重置。**
+
+---
+
+## 九、附：手机端参数（顺带记一下）
+
+```bash
+adb shell am start -n com.yq.sentinel/.MainActivity \
+  --ez autostart true \      # 启动检测
+  --ez pin true \            # 是否绑小核
+  --es threshold 0.4 \       # 置信度阈值（调高=更难判定为有人）
+  --ez stop true             # 停止
+```

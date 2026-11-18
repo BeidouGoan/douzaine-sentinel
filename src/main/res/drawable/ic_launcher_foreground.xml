@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「斗在吗」· 哨兵之眼 · 自适应图标前景层
+  ============================================
+  ★ 为什么用 VectorDrawable 而不是位图：
+    自适应图标会被各家桌面裁成不同形状（圆形/方形/水滴…），
+    只有矢量前景才能在任意裁切下都不糊。
+
+  ★ 坐标系统：108×108 单位（= 24dp @1.5x 密度基准）
+    中心 66×66 是安全区，超出部分可能被系统裁掉，
+    所以所有元素都收在中心附近。
+
+  ★ 造型：瞳孔居中 + 两道同心雷达弧（弧口朝下，模拟雷达扫描）
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 外层雷达弧（主，95% 不透明） -->
+    <path
+        android:pathData="M31,58 A23,23 0 0 1 77,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.95" />
+
+    <!-- 内层雷达弧（次，50% 不透明，制造层次） -->
+    <path
+        android:pathData="M38,58 A16,16 0 0 1 70,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.5" />
+
+    <!-- 瞳孔 -->
+    <path
+        android:pathData="M54,49 A9,9 0 1 1 53.99,49 Z"
+        android:fillColor="#FFFFFF" />
+
+</vector>

@@ -1,0 +1,242 @@
+# 02 · 复现步骤：模型、DDK、基准
+
+> 按 Gate 顺序读。这里只写"具体怎么做"，判断逻辑在 `01-决策树.md`。
+
+---
+
+## 一、AIIA 官方评测在 980 上复现
+
+### 为什么值得做
+
+不是为了拿跑分，是为了**在自己的机器上验证那张表**。
+那张表是整个项目的事实基础（`00-事实核查.md` 里所有结论都建立在它上面）。
+亲手复现一次，你就知道那些数字是真的还是二手转述搞错了。
+
+### 步骤
+
+```bash
+# 1) 克隆（注意正确地址）
+git clone https://github.com/AIIABenchmark/AIIA-DNN-benchmark.git
+cd AIIA-DNN-benchmark
+
+# 2) 准备模型与数据
+#    README 指向的百度网盘资源（密码 k04t）包含：
+#      images/  ImageNet 与 VOC2012 的测试帧
+#      tflite/  各模型的 tflite 文件
+#    导入到设备：
+adb shell mkdir -p /sdcard/Android/data/com.xintongyuan.aibench/files/images
+adb shell mkdir -p /sdcard/Android/data/com.xintongyuan.aibench/files/models/tflite
+adb push ./images/. /sdcard/Android/data/com.xintongyuan.aibench/files/images/
+adb push ./tflite/.  /sdcard/Android/data/com.xintongyuan.aibench/files/models/tflite/
+
+# 3) 编译
+#    需要 Android Studio + NDK r14b+（README 明确要求）
+#    gradle 版本较老（AGP 3.5.3 级别），用新版 AS 打开可能要调整
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 想跑 HIAI 后端（拿 NPU 成绩）
+
+仓库默认是 TFLite 后端。要复现 980 的 **NPU/INT8** 数字，
+需要接 HiAI DDK：
+
+1. 装 **HIAI DDK V200**（对应 Kirin 980，见华为 DDK↔芯片对照表）
+2. 把 DDK 的 `lib/` `include/` 放进 `app/src/main/libs` 与 jni 路径
+3. 参照仓库内 `hiai` 后端的组织方式接入
+
+**这一步比跑通 TFLite 后端麻烦得多，但它是唯一能验证
+"INT8 + NPU = 52 FPS"这个关键数字的路径。**
+
+### 一个提醒
+
+AIIA 仓库最后一次 push 是 2021-07，Gradle/依赖都是老版本。
+用现代 Android Studio 打开大概率要改 `build.gradle` 里的
+`jcenter()`（已停止服务）→ 换成 `mavenCentral()`，
+并可能需要降级 AGP。**这是个已知摩擦点，不是你操作错了。**
+
+---
+
+## 二、ncnn int8 模型准备
+
+### 1. 导出 ONNX
+
+用 SSD-MobileNetV2（300×300，VOC 21 类，person = 15）。
+官方 AIIA 用的就是这一套，数字才好对照。
+
+```bash
+# 从 TensorFlow 官方 checkpoint 或 HuggingFace 拿预训练模型
+python export_onnx.py   # 产出 ssd_mobilenetv2.onnx
+```
+
+### 2. 转 ncnn
+
+```bash
+# pnnx（新版，功能更强）或 onnx2ncnn（老版，官方文档常用）
+pnnx ssd_mobilenetv2.onnx
+# 或
+onnx2ncnn ssd_mobilenetv2.onnx ssd_mobilenetv2.param ssd_mobilenetv2.bin
+```
+
+### 3. 量化 ★ 这一步最容易做错
+
+```bash
+# calib.txt：每行一个校准图路径，几十到一百张，覆盖不同光照/角度
+./ncnn-quantize ssd_mobilenetv2.param ssd_mobilenetv2.bin calib.txt \
+      ssd_mobilenetv2_int8.param ssd_mobilenetv2_int8.bin
+```
+
+**量化后必须做精度验证**：在同一批图上比较 fp32 与 int8 的 mAP。
+掉点超过 2% 说明校准集不具代表性，补图重做。
+
+### 4. ★ native 侧必须开这三个开关
+
+这是 int8 部署最常见的坑（`app/src/main/cpp/ncnn_detector.cpp` 已写好）：
+
+```cpp
+net.opt.use_fp16_packed = true;      // 权重按 fp16 打包
+net.opt.use_fp16_storage = true;
+net.opt.use_fp16_arithmetic = true;
+```
+
+**不设这三个，ncnn 会把 int8 权重反量化回 fp32 再算。**
+结果完全正确，但你会丢掉一半以上性能，而且**没有任何报错**。
+你以为在测 int8，实际测的是 fp32。
+
+### 5. 放入 assets
+
+```
+app/src/main/assets/model/
+├── ssd_mobilenetv2_int8.param
+└── ssd_mobilenetv2_int8.bin
+```
+
+---
+
+## 三、HiAI DDK 离线模型（Gate 3 才需要）
+
+### DDK 版本对照（华为官方）
+
+| DDK 版本 | 芯片 |
+|---|---|
+| HIAI DDK V150 | Kirin 970 |
+| **HIAI DDK V200** | **Kirin 980** ← 你的 |
+| HIAI DDK V300 | Kirin 810 / 820 / 985 / 990 |
+
+### 转换流程
+
+```bash
+# DDK 自带 omg 工具，配合 uihost 环境
+export LD_LIBRARY_PATH=$DDK_DIR/ddk/uihost/lib
+$DDK_DIR/ddk/uihost/bin/omg \
+    --model=ssd_mobilenetv2.prototxt \
+    --weight=ssd_mobilenetv2.caffemodel \
+    --framework=0 \
+    --output=./out
+```
+
+### ★ 一定要看 eval_report.json
+
+转换产物目录里会有这个文件，它逐个算子告诉你**哪些不支持**：
+
+```json
+{
+  "fail": 1, "name": "SSD_VGG_640x640", "pass": 86, "total": 87,
+  "op": [
+    { "name": "conv1_1", "result": "success", "type": "Convolution" },
+    { "name": "detection_out", "result": "failed", "type": "DetectionOutput",
+      "cause": [{ "code": 8,
+        "message": "The type is ambiguous. Please choose from [FSRDetectionOutput, SSDDetectionOutput, YoloDetectionOutput]." }] }
+  ]
+}
+```
+
+两条出路：
+1. **换算子**：`DetectionOutput` → `SSDDetectionOutput`（写 opmap.txt）。
+   性能最好。
+2. **模型分段**：让不支持的算子回落 CPU，NPU/CPU 混合调度。
+   零改动，但那段跑 CPU。
+
+### 集成参考
+
+```bash
+git clone https://github.com/AIIABenchmark/AIIA-DNN-benchmark
+# 看它的 hiai 后端：JNI 层怎么写、模型目录怎么组织、
+# DDK 的 so 怎么打进 APK。这比自己从零摸 JNI 快得多。
+```
+
+---
+
+## 四、模型选择建议
+
+| 模型 | 输入 | person 类 id | 备注 |
+|---|---|---|---|
+| SSD-MobileNetV2 (VOC) | 300×300 | **15** | AIIA 官方那套，数字可对照 |
+| SSD-MobileNetV2 (COCO) | 300×300 | **0** | TFLite 官方版，FP16 可直接下 |
+| MobileNetV2 (分类) | 224×224 | — | 只判有无人的话更省，但没框 |
+
+**推荐用 VOC 版**（person=15），因为 AIIA 的对比数据基于它。
+
+⚠️ **类 id 别搞错**：VOC 和 COCO 的类别顺序不同。跑错了会表现为
+"检测到框但永远不是人"——`MainActivity.java` 里的
+`PERSON_LABEL_VOC` / `PERSON_LABEL_COCO` 要跟着模型改。
+
+---
+
+## 五、PC 端联调
+
+```bash
+# 建立反向隧道（PC 的 8765 → 手机的 8765）
+adb reverse tcp:8765 tcp:8765
+
+# 启动消费端
+python pc/sentinel_receiver.py --adb --action notify --action lock --absent-seconds 8
+```
+
+手机端 App 里点「开始检测」。
+
+### 事件格式
+
+```json
+{"event":"hello","app":"sentinel","backend":"ncnn-int8-cpu","model":"ssd_mobilenetv2","ts":1730000000000}
+{"event":"presence","present":false,"confidence":0.0,"ts":1730000000123}
+{"event":"stats","fps":14.8,"infer_ms":12,"device":"cpu(NEON)","ts":1730000001000}
+```
+
+---
+
+## 六、完整执行顺序（建议照抄）
+
+```bash
+# 0) 环境
+export PATH="$PATH:<ANDROID_SDK>/platform-tools"   # 换成你自己的 SDK 路径
+adb devices   # 确认手机在线
+
+# 1) 设备探测（看 NPU 硬件/驱动在不在）
+bash probe/probe_device.sh
+
+# 2) ★ Gate 0：串流到底占多少 CPU
+python bench/bench_stream_impact.py --duration 20 --pc-ip <PC_IP>
+
+# 3) 编译手机端
+cd app && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 4) PC 端
+adb reverse tcp:8765 tcp:8765
+python pc/sentinel_receiver.py --adb --dry-run     # 先 dry-run 验证链路
+
+# 5) A/B 对照实验（这才是项目的"结论"）
+#    跑 5.1 记录基准 → 跑 5.2 记录 CPU 检测 → 跑 5.3 记录绑核 CPU 检测
+```
+
+### 5.1–5.3 具体做什么
+
+| # | 手机端 | PC 端 | 记录什么 |
+|---|---|---|---|
+| 5.1 | 不启动检测 | 串流中 | Moonlight 延迟/丢帧基线 |
+| 5.2 | 启动检测（CPU 后端） | 串流中 | 延迟劣化多少 |
+| 5.3 | 启动检测 + `taskset 0x0f`（cpu0-3 小核） | 串流中 | 绑核后劣化是否消失 |
+
+**如果 5.3 ≈ 5.1，项目结论就是"不需要 NPU"，到此为止。**
+**如果 5.3 仍然明显劣化，再进 Gate 1 / Gate 3。**

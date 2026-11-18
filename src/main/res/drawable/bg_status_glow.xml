@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  状态光晕：呼吸动画的载体
+  ============================================
+  ★ 用径向渐变而不是实心圆，是为了让「扩散」看起来像光而不是一个更大的点。
+  ★ 渐变本身是白→透明，运行时用 tint 整体染成状态色
+    （绿=在场 / 红=离开 / 灰=待机）。
+  ★ gradientRadius 20dp = 40dp 视图的一半，正好铺满。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:centerX="0.5"
+        android:centerY="0.5"
+        android:gradientRadius="20dp"
+        android:startColor="#B3FFFFFF"
+        android:centerColor="#4DFFFFFF"
+        android:endColor="#00FFFFFF" />
+</shape>

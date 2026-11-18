@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「斗在吗」设计 Token · 深色模式（values-night）
+  ============================================
+  ★ 为什么必须做深色：
+    手机是插在工位上当副屏用的，晚上工位灯一关，
+    浅色界面会变成一块发光的白板 —— 这是本 App 的真实使用场景。
+
+  ★ 规则：主色与语义色单独给深色变体，禁止自动反色。
+    自动反色会让对比度崩掉。
+-->
+<resources>
+
+    <!-- ============ 品牌主色 [品牌] ============ -->
+    <!-- 深底上蓝色要提亮才够亮，但作为按钮填充仍用深蓝配白字保证 4.70:1 -->
+    <color name="brand_blue">#8AB0FF</color>
+    <color name="brand_blue_pressed">#B9CDFF</color>
+    <color name="primary">#2F6FE0</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#1C3B7A</color>
+    <color name="on_primary_container">#D9E6FF</color>
+
+    <!-- ============ 中性色 [通用] ============ -->
+    <color name="background">#0E1116</color>
+    <color name="surface">#171B22</color>
+    <color name="surface_variant">#22262F</color>
+    <color name="on_surface">#E8EAED</color>
+    <color name="on_surface_variant">#A7AFBC</color>
+    <color name="on_surface_muted">#79828F</color>
+    <color name="outline">#2E333D</color>
+
+    <!-- ============ 状态语义色 [品牌] ============ -->
+    <color name="state_present">#34D399</color>
+    <color name="state_present_container">#12352A</color>
+    <color name="state_present_glow">#34D399</color>
+
+    <color name="state_absent">#F87171</color>
+    <color name="state_absent_container">#3A1D1D</color>
+    <color name="state_absent_glow">#F87171</color>
+
+    <color name="state_uncertain">#FBBF24</color>
+    <color name="state_uncertain_container">#382B10</color>
+    <color name="state_uncertain_glow">#FBBF24</color>
+
+    <!-- ============ 特殊 [通用] ============ -->
+    <color name="scrim">#99000000</color>
+    <color name="ic_launcher_background">#2F6FE0</color>
+
+</resources>

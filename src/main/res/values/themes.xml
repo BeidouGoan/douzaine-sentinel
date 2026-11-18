@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「斗在吗」· Material 3 主题
+  ============================================
+  ★ 为什么从 Theme.AppCompat 换成 Material 3：
+    原工程界面全是裸 LinearLayout + 系统默认控件，没有一套主题。
+    换 Material 3 后，Button/Slider/Switch/Card 这些组件自带
+    状态机（默认/按下/禁用/聚焦），不用再手写 selector。
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.DouZaiMa" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- 品牌主色 -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+
+        <item name="colorSecondary">@color/on_surface_variant</item>
+        <item name="colorOnSecondary">@color/surface</item>
+        <item name="colorSecondaryContainer">@color/surface_variant</item>
+        <item name="colorOnSecondaryContainer">@color/on_surface</item>
+
+        <!-- 中性色 -->
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorOnBackground">@color/on_surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline</item>
+
+        <!-- 错误态 -->
+        <item name="colorError">@color/state_absent</item>
+        <item name="colorOnError">#FFFFFF</item>
+        <item name="colorErrorContainer">@color/state_absent_container</item>
+        <item name="colorOnErrorContainer">@color/state_absent</item>
+
+        <!-- 系统栏 -->
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+
+        <!-- 关闭 Material 3 默认的动态取色，改用我们的品牌色 -->
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+
+    <!-- ===== 文本样式 ===== -->
+
+    <!-- 状态大字（Hero）。44sp 是有意超出规范上限的特例：
+         本 App 只有一个二值状态，「有人/无人」必须一眼可读，
+         它是整个首屏的视觉主角。 -->
+    <style name="TextAppearance.DouZaiMa.Hero" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="android:textSize">44sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="TextAppearance.DouZaiMa.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.DouZaiMa.Section" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.DouZaiMa.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="TextAppearance.DouZaiMa.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- 数值等宽，避免 FPS 跳动时文字宽度抖动 -->
+    <style name="TextAppearance.DouZaiMa.Metric" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- ===== 组件样式 ===== -->
+
+    <style name="Widget.DouZaiMa.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardCornerRadius">24dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="cardBackgroundColor">@color/surface</item>
+        <item name="strokeColor">@color/outline</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="contentPadding">24dp</item>
+    </style>
+
+    <!-- 主操作按钮：56dp 高、胶囊圆角 -->
+    <style name="Widget.DouZaiMa.Button" parent="Widget.Material3.Button">
+        <item name="android:minHeight">56dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">28dp</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="Widget.DouZaiMa.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">52dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="cornerRadius">26dp</item>
+        <item name="strokeColor">@color/outline</item>
+    </style>
+
+</resources>

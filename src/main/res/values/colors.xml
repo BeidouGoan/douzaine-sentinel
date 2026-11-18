@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「斗在吗」设计 Token · 浅色模式
+  ============================================
+  ★ 来源标注规则（见 docs/06-UI设计规范.md）：
+    [品牌] 用户确认的品牌色，最高优先级
+    [平台] Android 平台强制规范
+    [通用] 行业通用做法
+
+  ★ 750px 画板 ↔ Android 375dp 的换算：
+    本工程的设备宽度 = 375dp，等价于设计稿的 750px @2x。
+    所以「规范里的 750px 数值 ÷ 2 = Android 的 dp/sp」。
+    例：字号 28px(正文) → 14sp；边距 32px → 16dp。
+-->
+<resources>
+
+    <!-- ============ 品牌主色 [品牌] ============ -->
+    <!-- 展示色：用于图标、渐变、大色块。对白底对比度 3.26:1，只作图形用 -->
+    <color name="brand_blue">#4D8DFF</color>
+    <!-- 品牌深压色：按钮按下态 -->
+    <color name="brand_blue_pressed">#2A5FC4</color>
+    <!-- 交互主色：所有可点击元素的填充色。白字对比度 4.70:1 ≥ 4.5:1 ✓ -->
+    <color name="primary">#2F6FE0</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#E6EFFF</color>
+    <color name="on_primary_container">#12326E</color>
+
+    <!-- ============ 中性色 [通用] ============ -->
+    <color name="background">#F4F6FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#EEF1F7</color>
+    <color name="on_surface">#151A21</color>
+    <color name="on_surface_variant">#5A6473</color>
+    <color name="on_surface_muted">#8B95A4</color>
+    <color name="outline">#E2E6EE</color>
+
+    <!-- ============ 状态语义色 [品牌] ============ -->
+    <!-- 与 PC 控制台语义一致：绿=在，橙红=不在 -->
+    <color name="state_present">#0A7F58</color>
+    <color name="state_present_container">#E4F6EE</color>
+    <color name="state_present_glow">#14B87F</color>
+
+    <color name="state_absent">#DC2626</color>
+    <color name="state_absent_container">#FDECEC</color>
+    <color name="state_absent_glow">#F05252</color>
+
+    <color name="state_uncertain">#B45309</color>
+    <color name="state_uncertain_container">#FDF1DF</color>
+    <color name="state_uncertain_glow">#E38A17</color>
+
+    <!-- ============ 特殊 [通用] ============ -->
+    <color name="scrim">#66000000</color>
+    <color name="ic_launcher_background">#2F6FE0</color>
+
+</resources>

@@ -1,0 +1,294 @@
+# 03 · 实测报告：CPU 版 + 绑小核
+
+> 数据采集自真机：**一台安卓真机 / Kirin 980 / EMUI 14.0.0 / Android 10**
+> 采集脚本：`bench/measure_detect.py`　原始数据：`reports/detect-*.json`
+> 日期：2026-10-29
+
+---
+
+## 一、结论先行
+
+**「CPU 版 + 绑小核」路线成立，且已跑通全链路。**
+
+| 验证项 | 状态 | 证据 |
+|---|---|---|
+| App 编译 | ✅ | `Sentinel-debug.apk`（21.5 MB） |
+| App 安装运行 | ✅ | 进程稳定，模型加载成功 |
+| 相机取帧 | ✅ | Camera2 预览 320×320@15fps |
+| 人形检测 | ✅ | 稳定识别 `person`，置信度 0.60–0.90 |
+| 绑小核 | ✅ | 全部 47 个线程落在 cpu0（含 MediaPipe 推理线程） |
+| 事件上报 | ✅ | PC 经 USB 共享网直连手机，收到 hello/stats 事件 |
+| 前台服务 | ✅ | Android 10 后台开相机的合规方案 |
+
+---
+
+## 二、三组对照实测（★ 串流活跃状态下）
+
+每组采样 15 秒。**Moonlight 正在串流**（实测接收速率 **98 KB/s**，三组一致）。
+
+| 配置 | 整机 CPU | 推理耗时 | **大核(cpu4-7)** | 串流码率 |
+|---|---|---|---|---|
+| **A** 无检测（基线） | 6.2% | — | 0.5% | 98.0 KB/s |
+| **B** 检测·不绑核 | 28.2% | **137 ms** | **8.1%** | 98.2 KB/s |
+| **C** **检测·绑小核** | 23.5% | 315 ms | **0.7%** ↓ | 98.0 KB/s |
+
+### 分核明细
+
+**A 无检测（基线）**
+```
+cpu0: 2.0%  cpu1: 1.1%  cpu2: 1.1%  cpu3: 1.4%
+cpu4: 0.4%  cpu5: 0.0%  cpu6: 0.0%  cpu7: 0.1%      合计 6.2%
+```
+
+**B 检测·不绑核** —— 负载散布在 8 个核上
+```
+cpu0: 6.6%  cpu1: 4.7%  cpu2: 4.1%  cpu3: 4.6%
+cpu4: 4.7%  cpu5: 0.8%  cpu6: 2.3%  cpu7: 0.3%      合计 28.2%
+```
+
+**C 检测·绑小核** —— 负载集中在 cpu0-3，大核基本让出
+```
+cpu0: 5.0%  cpu1: 5.6%  cpu2: 5.8%  cpu3: 6.3%
+cpu4: 0.5%  cpu5: 0.1%  cpu6: 0.0%  cpu7: 0.1%      合计 23.5%
+```
+
+### 关键读数
+
+| 指标 | B → C | 说明 |
+|---|---|---|
+| **大核占用** | 8.1% → **0.7%** | **降 91%**，大核让给串流解码 |
+| 整机占用 | 28.2% → 23.5% | 降 17%（小核跑得更省总能耗） |
+| 推理耗时 | 137ms → 315ms | **慢 130%**（小核性能约为大核的 43%） |
+| 折算帧率 | 7.3 fps → 3.2 fps | |
+| **串流码率** | 98.2 → 98.0 KB/s | **三组完全一致，检测未干扰串流** |
+
+**这个权衡是本项目的核心结论**：
+> 绑核 = 用 2.3 倍的推理时间换 91% 的大核让出。
+> 对「人还在不在」这个判定目标，3.2 fps 完全够用
+> （人的离开动作持续数秒，采样再慢也能捕捉到）。
+> 而**串流码率三组不变**，说明检测与串流已经彻底解耦。
+
+---
+
+## 三、绑核是否真的生效（逐线程验证）
+
+这是必须验证的一步——绑核 API 调用成功 ≠ 真的生效。
+
+`/proc/<pid>/task/<tid>/stat` 最后一个字段是线程上次运行的核：
+
+```
+线程名                     tid      所在核
+------------------------------------------------
+Detect                  29202    0        ← 我们的检测线程
+pool-1-thread-1         29209    0        ← MediaPipe 线程池
+drishti/29210           29210    0        ← MediaPipe 推理线程
+drishti/29211           29211    0
+drishti/29212           29212    0
+drishti/29213           29213    0
+drishti/29215           29215    0
+drishti/29216           29216    0
+drishti/29217           29217    0
+drishti_gl_runn         29230    0
+CameraFrame             29235    0        ← 相机取帧线程
+EventServer-acc         29207    0
+mali-utility-wo         29220-27 0        ← GPU 驱动线程
+```
+
+**全部 47 个线程都在 cpu0**（小核）。
+关键是：**MediaPipe 的 `drishti` 推理线程继承了创建者的亲和性**——
+所以绑核必须在**创建 detector 之前**做，否则这些线程会跑在大核上。
+
+---
+
+## 四、绑核为什么必须由 App 自己做
+
+实测结果：
+
+```bash
+$ adb shell taskset -p 0x0f <pid>
+taskset: failed to get 22232's affinity: Permission denied
+
+$ adb root
+adbd cannot run as root in production builds
+```
+
+| 方案 | 结果 | 原因 |
+|---|---|---|
+| `adb shell taskset` | ❌ Permission denied | 改别的进程需要 `CAP_SYS_NICE`，shell 没有 |
+| `adb root` | ❌ production build 禁止 | EMUI 安全策略 |
+| **App 内 JNI `sched_setaffinity(0,...)`** | ✅ 成功 | 线程可以改**自己的**亲和性 |
+
+这个限制是 Android 的设计，不是 bug。所以绑核逻辑必须内置在 App 里，
+PC 侧脚本无法代劳。
+
+---
+
+## 五、踩过的坑（全部已修）
+
+### 1. Android 10 禁止后台开相机
+
+```
+Caller "com.yq.sentinel" cannot open camera "1" from background (proc state 21)
+```
+
+**症状**：`am start` 启动 App，模型加载成功，但没有任何检测日志。
+**原因**：App 启动后 600ms 才执行 `startAll()`，那时已进后台。
+**解**：`SentinelService` 前台服务（`foregroundServiceType="camera"`），
+Android 10+ 相机类后台 App 的标准做法。
+
+### 2. MediaPipe 的模型不含 NMS
+
+裸 TFLite 跑 MediaPipe 的 ssd_mobilenet_v2 直接崩：
+```
+Cannot copy from a TensorFlowLite tensor with shape [1, 12276, 4]
+to a Java object with shape [1, 10, 4]
+```
+MediaPipe 导出模型时 `add_postprocessing_op=False`，
+12276 个框是原始 anchor 编码。**必须用 MediaPipe Tasks 库**
+（自带 anchor 生成 + box 解码 + NMS）。
+
+### 3. 类别判定要用名字不用索引
+
+`Category.index()` 是标签在列表中的序号，随模型 metadata 变化。
+`categoryName()` 才是稳定的字符串。判定 person 用 `categoryName() == "person"`。
+
+### 4. logcat 的 `-t N` 窗口会被冲掉
+
+相机 HAL 的 `EnvImpl` 日志每秒几十条，`logcat -d -t 300` 里全是它。
+**改用 `logcat -s TAG:V` 由设备端按 tag 过滤。**
+
+### 5. adb shell 的多层引号传递
+
+`adb shell "am start ... --ez pin false"` 里的 `false` 在
+Windows → bash → adb shell 三层传递中丢失。
+**改用 argv 形式**：`adb shell am start -n ... --ez pin false`。
+
+### 6. `/proc/stat` 的 busy/total 必须分开取
+
+早期版本用 `Δbusy / Δbusy` 算利用率，永远等于 100%。
+正确：`利用率 = Δbusy / Δtotal`，两个值都要从 `/proc/stat` 取。
+
+### 7. 「Moonlight 挂着」≠「在串流」
+
+进程存在、窗口存在，但网卡流量为 0。
+必须用**流量**判断，不能看进程。
+
+### 9. MediaPipe 的 Bitmap 必须是软件位图
+
+```
+Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x160
+Cause: null pointer dereference
+  #02 AndroidPacketCreator_nativeCreateRgbaImage
+```
+
+**症状**：跑一段时间后随机崩溃；崩溃缓冲区有堆栈，但 logcat 里看不到任何异常。
+**原因**：EMUI 上 `Bitmap.createBitmap` 可能返回**硬件位图**（HW Bitmap），
+像素存在 GPU 里，native 侧 `lockPixels` 拿不到 CPU 指针 → 空指针。
+**解**：用 `Bitmap.createBitmap(int[] colors, w, h, ARGB_8888)` 这个纯 Java 路径，
+它一定产生软件位图。转换本来就要逐像素算，差别可忽略。
+
+### 10. Kotlin try/catch 分支类型不一致
+
+```kotlin
+val result = try { d.detect(mpImage) } catch (e: Exception) { DetectionResult.empty(...) }
+```
+catch 分支返回 `DetectionResult`，成功分支返回 `ObjectDetectorResult`，
+Kotlin 推断出公共父类型 `Any`，于是 `result.detections()` 解析不到，
+报一堆 "Unresolved reference: detections"。
+**解**：catch 分支返回 `null`，成功分支保持原类型。
+
+---
+
+## 六、PC 端动作：已端到端验证 ✅
+
+2026-10-29 真机验证，模拟「人离开」的方法是把手机端置信度阈值
+调到 0.99（高于实测的 0.66），App 即判定无人：
+
+```
+[11:36:27] 已加载配置文件: pc\sentinel_config.json
+[11:36:27] 动作集: ['notify']
+[11:36:27] 直连模式: <手机IP>:8765
+[11:36:27] 已连上手机 (第 1 次尝试)
+[11:36:27] 手机端已连接: {"event":"hello","app":"sentinel","backend":"tflite-cpu",
+                           "model":"ssd_mobilenet_v2","pid":9147,"device":"<device>","sdk":29}
+[11:36:28] 检测到人回来，开始计时…
+[11:36:33] 检测到人离开，开始计时…
+[11:36:35] 人已离开 1.3s（超过阈值 0.0s），触发动作
+[11:36:35]   notify: OK dry-run: 未真正弹出通知
+```
+
+链路：`相机 → MediaPipe 检测 → 状态机(8s去抖) → TCP上报 → PC端计时 → 动作触发` ✅
+
+动作链路的 6 个场景由 `pc/test_actions.py` 覆盖（无需真的离开）：
+有人在 / 短暂离开(不足阈值) / 超时离开(触发) / 持续无人(不重复触发) /
+人回来再离开(可再次触发) / present 模式。
+
+### 为此修的三个真 bug
+
+| Bug | 现象 | 解 |
+|---|---|---|
+| `--action exec:<命令>` 被 argparse 拦死 | help 说支持，实际用不了 | 去掉 `choices`，代码里手动校验 |
+| `--trigger present/both` 没实现 | 参数收了但逻辑没接上 | 补齐实现 + `present_seconds` 阈值 |
+| **一次「离开」重复触发** | 每 2 秒触发一次，`cooldown` 只是掩盖 | `_fired_absent` 标志，人回来才重置 |
+
+第三个最危险：**一旦 `cooldown` 设成 0，PC 会真的疯狂锁屏。**
+
+配置说明见 [`04-PC端配置.md`](04-PC端配置.md)。
+
+---
+
+## 七、还没做的事
+
+| 事项 | 状态 | 说明 |
+|---|---|---|
+| 真机执行 `notify` / `lock` | ⬜ 未做 | 目前只跑过 `--dry-run`。逻辑链路已验证，<br>但真实弹窗/锁屏需要你在场确认 |
+| 长时间稳定性 | ⬜ 未做 | 建议跑一整夜看有没有内存泄漏或线程堆积 |
+
+---
+
+## 七、复现命令
+
+```bash
+export JAVA_HOME="<你的 JDK 21 路径>"
+export GRADLE="<你的 gradle 8.7 路径>/bin/gradle"
+export PATH="$PATH:<ANDROID_SDK>/platform-tools"
+
+# 编译安装
+cd HWWorksheet
+"$GRADLE" assembleDebug --no-daemon --console=plain
+adb install -r build/outputs/apk/debug/Sentinel-debug.apk
+adb shell pm grant com.yq.sentinel android.permission.CAMERA
+
+# 单组测量
+python bench/measure_detect.py --mode detect --duration 15
+
+# 三组对照
+python bench/measure_detect.py --duration 15
+
+# 手动启动（看实时日志）
+adb shell am start -n com.yq.sentinel/.MainActivity --ez autostart true --ez pin true
+adb logcat -s Sentinel:V CpuAffinity:V PersonDetector:V CameraFrame:V
+
+# PC 端事件消费
+python pc/sentinel_receiver.py --mode direct --port 8765 --action notify --action lock
+```
+
+---
+
+## 八、落地成果清单
+
+| 文件 | 作用 |
+|---|---|
+| `src/main/java/com/yq/sentinel/detect/PersonDetector.kt` | MediaPipe Tasks 检测器 |
+| `src/main/java/com/yq/sentinel/affinity/CpuAffinity.kt` | 绑核封装 |
+| `src/main/cpp/cpu_affinity.cpp` | 绑核 JNI（含小核自动识别） |
+| `src/main/java/com/yq/sentinel/presence/PresenceStateMachine.kt` | 有人/离开状态机 |
+| `src/main/java/com/yq/sentinel/net/EventServer.kt` | 事件上报 TCP server |
+| `src/main/java/com/yq/sentinel/SentinelService.kt` | 前台服务（Android 10 必需） |
+| `src/main/java/com/yq/sentinel/camera/` | Camera2 取帧 + YUV 转换 |
+| `bench/measure_detect.py` | 三组对照测量 |
+| `bench/bench_stream_impact.py` | 串流占用测量（Gate 0） |
+| `pc/sentinel_receiver.py` | PC 端事件消费 + 动作执行 |
+| `probe/` | 设备探测 / HiAI 插件逆向 / 负载清理 |
+| `docs/00-事实核查.md` | 原分析的两处错误 + 官方数据 |
+| `docs/01-决策树.md` | 三个门的完整路线 |

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  尺寸 Token
+  ============================================
+  规格书里的 750px 画板 ÷ 2 = Android 的 dp。
+  例：规范「页面边距 32px」→ 16dp。
+  间距基数在 dp 下是 4 的倍数（规范里 8px 的倍数 ÷ 2）。
+-->
+<resources>
+
+    <!-- 间距：4 / 8 / 12 / 16 / 24 / 32 dp -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_xxl">32dp</dimen>
+
+    <!-- 页面左右边距 -->
+    <dimen name="screen_margin">16dp</dimen>
+
+    <!-- 圆角 -->
+    <dimen name="radius_s">8dp</dimen>
+    <dimen name="radius_m">16dp</dimen>
+    <dimen name="radius_l">24dp</dimen>
+
+    <!-- 状态光点 -->
+    <dimen name="status_dot">16dp</dimen>
+
+    <!-- 指标格宽度由权重决定，此处仅定义最小高度 -->
+    <dimen name="metric_min_height">64dp</dimen>
+
+</resources>

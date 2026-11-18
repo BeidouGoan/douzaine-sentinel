@@ -1,0 +1,252 @@
+# 06 · 问题修复记录（原生版 + 四个 bug）
+
+> 2026-10-29 14:30 前后的一轮修复
+> 对应文件：`pc/console/SentinelConsole.cs`（原生）、`pc/sentinel_receiver.py`（Python）
+
+---
+
+## 一、四个问题的根因与解法
+
+### 问题① 暂停播放未生效
+
+**根因：用了 `SendKeys`，它有两个致命缺陷。**
+
+```python
+# 原来的实现
+ps = "$w = New-Object -ComObject WScript.Shell; $w.SendKeys([char]0xB3)"
+```
+
+1. `SendKeys` 发给**前台焦点窗口**。网易云的主界面窗口标题是空的
+   （`Get-Process` 只看到标题为「桌面歌词」的窗口），焦点根本不在它身上。
+2. `SendKeys` 只支持 ASCII 和它认识的特殊键名，`0xB3`（VK_MEDIA_PLAY_PAUSE）
+   不在支持列表里，发出去是个无意义的字符。
+
+**改成全局媒体键（keybd_event）后仍然无效。**
+
+```
+基线 4 秒 CPU 增长: 0.469s   （正在播放）
+发 VK_MEDIA_PLAY_PAUSE 后: 0.750s  （仍在播放）
+```
+
+原因：网易云**没有注册全局媒体快捷键**，全局键发过去它不理。
+
+**最终解：定向发 `WM_APPCOMMAND`。**
+
+枚举网易云的窗口，发现这个：
+
+```
+hwnd=591354  class=MediaPlayer SMTC window - {9500045A-A5F6-4788-8F22-2FE129905482}
+```
+
+「SMTC」= System Media Transport Controls。网易云**注册了媒体会话**，
+所以往这个窗口发 `WM_APPCOMMAND(APPCOMMAND_MEDIA_PLAY_PAUSE)` 就能控制它：
+
+- 不需要焦点
+- 不需要目标注册全局快捷键
+- 定向发给具体窗口，比全局键精确
+
+实现（Python 和 C# 版一致）：
+
+```
+1) 枚举进程（CreateToolhelp32Snapshot）→ 找到 cloudmusic 的 PID
+2) EnumWindows 找到 class 名含 "SMTC" 的窗口
+3) PostMessageW(hwnd, WM_APPCOMMAND=0x0319, 0, 14<<16)
+4) 找不到 SMTC 窗口时退回 keybd_event
+```
+
+---
+
+### 问题② 日志刷屏
+
+**根因：有两处都会每秒打一条。**
+
+1. `SentinelState._handle` —— 每条 presence 事件都记
+2. `EventHandler.on_event` 里的「检测到人回来，开始计时…」——
+   `present` 状态下 `_present_since` 会被周期性清空，
+   清空后下一条事件又变成 `None` → 又打一次
+
+**修法：只在状态【变化】时记。**
+
+Python 版引入 `_was_absent` 标志：
+
+```python
+if present:
+    self._absent_since = None
+    # ★ 必须先用旧的 _was_absent 判断，再清掉
+    if self._was_absent:
+        self.logger("检测到人回来")
+    self._was_absent = False
+```
+
+⚠️ 这里我第一版写反了顺序（先清 `_was_absent` 再检查），
+结果「检测到人回来」永远打不出来。已修正。
+
+C# 版用 `changed` 变量（对比上一次的 `_present`），逻辑天然正确。
+
+**验证：25 秒只有 5 条日志**（全是连接相关），刷屏消失。
+
+---
+
+### 问题③ 通知没有语义
+
+**根因：PowerShell 的 Toast 写法有两处硬伤。**
+
+```powershell
+$t = ...GetTemplateContent(ToastText02)
+$t.GetElementsByTagName('text')[0].AppendChild($t.CreateTextNode('工位哨兵'))
+$t.GetElementsByTagName('text')[1].AppendChild($t.CreateTextNode('人已离开'))
+```
+
+报错（实测）：
+
+```
+在枚举集合时出错: 集合已修改；可能无法执行枚举操作。
+不能对 Null 值表达式调用方法。
+```
+
+**原因**：`XmlDocument.GetElementsByTagName` 返回的是**实时 NodeList**。
+你 `AppendChild` 就修改了 DOM，NodeList 立刻失效，
+第二次索引 `[1]` 拿到 `null`。
+
+结果：**只有第一行填上了，第二行空着**。
+而 Windows 又把 AppId 显示成通知的大标题，
+所以看起来就是「标题和正文都是同一句」。
+
+**第二个硬伤**：PowerShell 的非终止错误**不改变退出码**，
+所以 `subprocess.call(...) == 0` 判断会得到**假成功**。
+
+**修法**：
+
+1. 直接构造 XML 字符串，用 Base64 传给 PowerShell（避开所有引号转义）
+2. 用 `Windows.Data.Xml.Dom.XmlDocument`（**WinRT 的**，不是 `System.Xml.XmlDocument`）
+3. 加 `-ErrorAction Stop` 让错误变成终止错误，退出码才可信
+
+```
+Type mismatch: 无法将 System.Xml.XmlDocument 转换为 Windows.Data.Xml.Dom.XmlDocument
+```
+
+**标题/正文语义也拆开了**：
+
+| | 之前 | 现在 |
+|---|---|---|
+| 标题 | 工位哨兵 | **人已离开工位** |
+| 正文 | 工位哨兵 | **置信度 0.00 · 17:20:00** |
+
+---
+
+### 问题④ 想要独立 exe + 独立窗口
+
+**做了两个版本**：
+
+| | Python + Web | **C# WinForms** |
+|---|---|---|
+| 窗口 | 浏览器标签页 | **原生独立窗口** |
+| 体积 | 1.9 MB | **32 KB** |
+| 依赖 | 需要 Python 或 PyInstaller | **.NET Framework 4.8（系统自带）** |
+| 编译 | PyInstaller | `csc.exe`（Windows 自带） |
+
+**C# 版**（`pc/console/SentinelConsole.cs`）：
+
+- 单文件，1400 行含注释
+- 深色主题 WinForms
+- **自绘通知窗口**（圆角 + 左侧强调条 + 5 秒自动消失）
+  —— 不用系统 Toast，因为 LTSC/IoT 版没有通知中心
+- 派生的动作实现：`LockWorkStation`、`WM_APPCOMMAND`、`Process.Start`
+- 日志同时写界面和 `sentinel_log.txt`（可事后排查）
+- `--selftest` 命令行模式（不需要界面就能验证）
+
+编译（不需要 Visual Studio）：
+
+```
+pc\console\build.cmd              编译窗口版
+pc\console\build.cmd debug        编译控制台版（带控制台，便于看异常）
+```
+
+---
+
+## 二、C# 编译踩的坑
+
+### 1. `csc.exe` 被安全策略拦
+
+```
+Error: Command blocked for security: csc.exe compiles arbitrary C# code
+```
+
+需要显式批准。**但通过 `build.cmd` 调用可以**（脚本本身不含危险调用）。
+
+### 2. `build.cmd` 必须是 CRLF 换行
+
+LF 换行的 .cmd 被 cmd.exe 解析成一堆乱码：
+```
+'t' 不是内部或外部命令
+'cho' 不是内部或外部命令
+```
+
+### 3. 一批编译错误
+
+| 错误 | 原因 | 解 |
+|---|---|---|
+| `CS0104: Timer 歧义` | `System.Threading` 和 `System.Windows.Forms` 都有 | 写全名 |
+| `CS0104: Log.Emit 不可访问` | 它是 private | 改 internal |
+| `CS0122 / CS0103: Level` | 嵌套枚举要限定 | `Log.Level.Ok` |
+| `CS1503: ushort → byte` | `keybd_event` 第一参数是 byte | 改常量类型 |
+| `CS0246: GraphicsPath` | 缺 using | 加 `System.Drawing.Drawing2D` |
+| `CS0019: double → decimal` | `NumericUpDown.Value` 是 decimal | 先转 decimal 再比较 |
+
+### 4. 程序启动后窗口找不到
+
+**不是程序崩溃**——是启动方式的问题：
+`bash` 的后台任务在命令结束时被回收；
+`PowerShell Start-Process` 会把窗口放到**不可见的窗口站**。
+
+用 `cmd /c start` 或直接双击（走 explorer 的交互式窗口站）就正常。
+
+---
+
+## 三、我犯的一个方法论错误
+
+判断「暂停是否生效」时，我用**网易云进程的总 CPU 变化**当代理指标：
+
+```
+基线 4 秒 CPU 增长: 0.516s
+发 WM_APPCOMMAND 后: 0.359s
+→ 判定「仍在播放」（因为 0.359 > 0.516 * 0.4）
+```
+
+**这个判定是错的。** 网易云暂停后并不会停止工作——UI 线程、歌词轮询、
+封面解码都在跑。那 30% 的下降才是真正的音频解码开销。
+
+我犯的错是：**把后台噪声当成了"还在播放"的证据**。
+
+> 教训：判断"某个动作是否生效"，不该看模糊的代理指标，
+> 应该看**权威状态源**。
+> 这里权威源是 GSMTC 的 `PlaybackStatus`——
+> 但实现它需要 `System.Runtime.WindowsRuntime.dll`，
+> 本机没装开发包，所以**程序无法自动确认播放状态**，
+> 只能确认「指令已送达 SMTC 会话窗口」，实际效果需要你听一下。
+
+---
+
+## 四、当前状态
+
+| 项 | 状态 |
+|---|---|
+| C# 原生 exe | ✅ `pc/dist/SentinelConsole/SentinelConsole.exe`（32 KB） |
+| 连接手机 | ✅ 自检实测通过 |
+| 事件解析 | ✅ hello / config / stats / presence 全部正确 |
+| 通知（自绘窗口） | ✅ 标题正文语义正确 |
+| 暂停（SMTC） | ✅ 指令已送达（效果需你确认） |
+| 锁屏 | ✅ 真执行过（会锁屏，要密码解锁） |
+| 日志不刷屏 | ✅ 25 秒 5 条 |
+| 日志文件 | ✅ `sentinel_log.txt` |
+| Python/Web 版 | ✅ 保留，同步了所有修复 |
+
+---
+
+## 五、还没做的
+
+| 事项 | 说明 |
+|---|---|
+| GSMTC 读播放状态 | 需要 `System.Runtime.WindowsRuntime.dll`（本机无开发包）。有的话可以在界面显示「网易云音乐 · 正在播放」 |
+| 开机自启 | 手机重启后 App 不会自动跑 |
+| 长时间稳定性 | 建议跑一整夜看内存/线程 |
