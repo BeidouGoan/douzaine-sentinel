@@ -13,9 +13,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APK_NAME="DouZaiMa-v1.0.apk"
-# 按需设置这两个环境变量指向你本机的 SDK / Gradle；此处不写死任何本机路径
-export ANDROID_HOME="${ANDROID_HOME:-<ANDROID_SDK>}"
-GRADLE="${GRADLE:-gradle}"   # 默认用 PATH 里的 gradle，也可传绝对路径
+# 本机环境覆盖（不入库）：把 SDK / gradle 路径写进 .workbuddy/local_env.sh
+# 仓库里不写死任何本机路径；新机器若已配好 ANDROID_HOME 且 gradle 在 PATH，可不建该文件
+if [ -f ".workbuddy/local_env.sh" ]; then
+    # shellcheck disable=SC1091
+    source ".workbuddy/local_env.sh"
+fi
+export ANDROID_HOME="${ANDROID_HOME:-}"
+GRADLE="${GRADLE:-gradle}"   # 默认用 PATH 里的 gradle；本机可在 local_env.sh 里覆盖为绝对路径
 
 if [ ! -x "$GRADLE" ] && [ ! -f "$GRADLE" ]; then
     echo "[ERROR] 找不到 gradle：$GRADLE"
